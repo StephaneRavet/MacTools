@@ -5351,67 +5351,67 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "قم بتعيين رمز شريط قائمة واحد للمظاهر الفاتحة والداكنة. يتم الاحتفاظ بالصورة الأصلية عند الاستيراد."
+            "value": "استخدم أيقونة واحدة لشريط القائمة تتكيف تلقائيًا مع المظهرين الفاتح والداكن."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Legen Sie ein Menüleistensymbol für helle und dunkle Darstellungen fest. Das Originalbild bleibt beim Import erhalten."
+            "value": "Verwende ein Menüleistensymbol, das sich automatisch an die helle und dunkle Darstellung anpasst."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Set one menu bar icon for light and dark appearances. The original image is preserved on import."
+            "value": "Use one menu bar icon that automatically adapts to light and dark appearances."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Establezca un ícono de barra de menú para apariencias claras y oscuras. La imagen original se conserva al importar."
+            "value": "Usa un único icono de la barra de menús que se adapte automáticamente al aspecto claro y oscuro."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Définissez une icône dans la barre de menus pour les apparences claires et sombres. L'image d'origine est conservée lors de l'importation."
+            "value": "Utilisez une seule icône de barre des menus qui s’adapte automatiquement aux apparences claire et sombre."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "明暗の外観用に 1 つのメニュー バー アイコンを設定します。インポート時に元の画像が保持されます。"
+            "value": "ライトとダークの外観に自動で適応するメニューバーアイコンを設定します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "밝은 모양과 어두운 모양에 대해 하나의 메뉴 표시줄 아이콘을 설정합니다. 가져올 때 원본 이미지를 유지합니다."
+            "value": "밝은 모드와 어두운 모드에 자동으로 맞춰지는 메뉴 막대 아이콘 하나를 설정합니다."
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Defina um ícone na barra de menu para aparências claras e escuras. A imagem original é preservada na importação."
+            "value": "Use um único ícone da barra de menus que se adapta automaticamente às aparências clara e escura."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Установите один значок в строке меню для светлого и темного внешнего вида. При импорте исходное изображение сохраняется."
+            "value": "Используйте один значок строки меню, который автоматически адаптируется к светлому и тёмному оформлению."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "统一设置浅色和深色菜单栏图标，导入时会保留原图。"
+            "value": "统一设置菜单栏图标，自动适应浅色和深色外观。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "統一設定淺色和深色選單列圖標，導入時會保留原圖。"
+            "value": "統一設定選單列圖示，自動適應淺色和深色外觀。"
           }
         }
       }
@@ -7333,6 +7333,77 @@
         }
       }
     },
+    "menuBarIcon.importError.requiresTransparency": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر أيقونة أو رسمًا متحركًا بخلفية شفافة ومحتوى مرئي."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle ein Symbol oder eine Animation mit transparentem Hintergrund und sichtbarem Motiv."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose an icon or animation with a transparent background and visible artwork."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige un icono o una animación con fondo transparente y un dibujo visible."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez une icône ou une animation avec un fond transparent et un motif visible."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景が透明で、絵柄が見えるアイコンまたはアニメーションを選択してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "배경이 투명하고 그림이 보이는 아이콘이나 애니메이션을 선택하세요."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha um ícone ou uma animação com fundo transparente e conteúdo visível."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите значок или анимацию с прозрачным фоном и видимым рисунком."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请选择透明背景且包含可见图案的图标或动画。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請選擇透明背景且包含可見圖案的圖示或動畫。"
+          }
+        }
+      }
+    },
     "menuBarIcon.importError.unsupportedAnimation": {
       "extractionState": "manual",
       "localizations": {
@@ -7907,67 +7978,67 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يدعم الصور وملفات GIF/MP4 خفيفة الوزن والأيقونات المتحركة عبر الإنترنت. يتم الاحتفاظ بالصورة الأصلية عند الاستيراد."
+            "value": "استورد أيقونات أو رسومًا متحركة قصيرة بخلفيات شفافة، أو اختر من المعرض عبر الإنترنت."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unterstützt Bilder, einfache GIF/MP4-Dateien und animierte Online-Symbole. Das Originalbild bleibt beim Import erhalten."
+            "value": "Importiere Symbole oder kurze Animationen mit transparentem Hintergrund oder wähle aus der Online-Galerie."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Supports images, lightweight GIF/MP4 files, and online animated icons. The original image is preserved on import."
+            "value": "Import icons or short animations with transparent backgrounds, or choose from the online gallery."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Admite imágenes, archivos ligeros GIF/MP4 e íconos animados en línea. La imagen original se conserva al importar."
+            "value": "Importa iconos o animaciones cortas con fondo transparente, o elige de la galería en línea."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prend en charge les images, les fichiers légers GIF/MP4 et les icônes animées en ligne. L'image d'origine est conservée lors de l'importation."
+            "value": "Importez des icônes ou de courtes animations sur fond transparent, ou choisissez dans la galerie en ligne."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "画像、軽量の GIF/MP4 ファイル、オンライン アニメーション アイコンをサポートします。インポート時に元の画像が保持されます。"
+            "value": "背景が透明なアイコンや短いアニメーションを読み込むか、オンラインギャラリーから選択できます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이미지, 가벼운 GIF/MP4 파일 및 온라인 애니메이션 아이콘을 지원합니다. 가져올 때 원본 이미지를 유지합니다."
+            "value": "배경이 투명한 아이콘이나 짧은 애니메이션을 가져오거나 온라인 갤러리에서 선택하세요."
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Suporta imagens, arquivos GIF/MP4 leves e ícones animados on-line. A imagem original é preservada na importação."
+            "value": "Importe ícones ou animações curtas com fundo transparente, ou escolha na galeria online."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Поддерживает изображения, легкие файлы GIF/MP4 и анимированные значки онлайн. При импорте исходное изображение сохраняется."
+            "value": "Импортируйте значки или короткие анимации с прозрачным фоном либо выберите их в онлайн-галерее."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "支持图片、轻量 GIF/MP4 和在线动态图标；导入时会保留原图。"
+            "value": "支持透明背景的图标和轻量动画，也可从在线图库选择。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "支持圖片、輕量 GIF/MP4 和在線動態圖標；導入時會保留原圖。"
+            "value": "支援透明背景的圖示和輕量動畫，也可從線上圖庫選擇。"
           }
         }
       }
