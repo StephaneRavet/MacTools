@@ -125,6 +125,9 @@ class NightlyReleaseTests(unittest.TestCase):
             nightly_release.verify_nightly_helper_signatures(pathlib.Path("Packages"), "com.example")
 
     def test_metadata_uses_run_attempt_for_monotonic_retries(self) -> None:
+        version = nightly_release.read_app_version(
+            REPO_ROOT / "Configs/AppVersion.xcconfig"
+        )["MARKETING_VERSION"]
         metadata = nightly_release.make_metadata(
             config_path=REPO_ROOT / "Configs/AppVersion.xcconfig",
             plugins_dir=REPO_ROOT / "Plugins",
@@ -138,11 +141,11 @@ class NightlyReleaseTests(unittest.TestCase):
         self.assertEqual(metadata["TAG"], "nightly-512-3")
         self.assertEqual(
             metadata["CLI_ARCHIVE_PATH"],
-            "build/nightly/nightly-512-3/mactools-cli-1.3.0-512.3-macos-universal.zip",
+            f"build/nightly/nightly-512-3/mactools-cli-{version}-512.3-macos-universal.zip",
         )
         self.assertEqual(
             metadata["CLI_SHA256_PATH"],
-            "build/nightly/nightly-512-3/mactools-cli-1.3.0-512.3-macos-universal.zip.sha256",
+            f"build/nightly/nightly-512-3/mactools-cli-{version}-512.3-macos-universal.zip.sha256",
         )
         self.assertNotIn("PROJECT_NAME", metadata)
         self.assertEqual(metadata["PLUGIN_KIT_VERSION"], "5")
