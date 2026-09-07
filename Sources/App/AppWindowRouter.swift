@@ -207,7 +207,6 @@ enum AppDockVisibilityController {
 @MainActor
 final class StandaloneCommandPaletteState: ObservableObject {
     @Published private(set) var presentationOrigin: UnifiedSearchPresentationOrigin?
-    @Published private(set) var shortcutHint: String?
     @Published private(set) var focusRequestID: UInt = 0
     @Published private(set) var resetRequestID: UInt = 0
     @Published private(set) var quickSelectionRequest: UnifiedSearchQuickSelectionRequest?
@@ -218,7 +217,6 @@ final class StandaloneCommandPaletteState: ObservableObject {
 
     func prepareForPresentation(shortcutLabel: String) {
         presentationOrigin = .globalShortcut(shortcutLabel)
-        shortcutHint = shortcutLabel
         quickSelectionRequest = nil
         resetRequestID &+= 1
         focusRequestID &+= 1
@@ -302,7 +300,6 @@ struct StandaloneCommandPaletteRootView: View {
                 recentStore: commandPaletteRecentStore,
                 availableSize: geometry.size,
                 presentationOrigin: state.presentationOrigin,
-                shortcutHint: state.shortcutHint,
                 focusRequestID: state.focusRequestID,
                 resetRequestID: state.resetRequestID,
                 quickSelectionRequest: state.quickSelectionRequest,
@@ -426,16 +423,15 @@ final class AppWindowRouter: NSObject, NSWindowDelegate {
     }
 
     var focusedWindowLayoutTarget: NSWindow? {
-        guard let settingsWindow,
-              Self.isEligibleFocusedWindowLayoutTarget(
-                  isKeyWindow: settingsWindow.isKeyWindow,
-                  isVisible: settingsWindow.isVisible,
-                  isUnifiedSearchPresented: settingsNavigationCoordinator?.isUnifiedSearchPresented == true
-              )
-        else {
-            return nil
+        if let settingsWindow,
+           Self.isEligibleFocusedWindowLayoutTarget(
+               isKeyWindow: settingsWindow.isKeyWindow,
+               isVisible: settingsWindow.isVisible,
+               isUnifiedSearchPresented: settingsNavigationCoordinator?.isUnifiedSearchPresented == true
+           ) {
+            return settingsWindow
         }
-        return settingsWindow
+        return pluginHost.focusedPluginWindowLayoutTarget()
     }
 
     static func isEligibleFocusedWindowLayoutTarget(
