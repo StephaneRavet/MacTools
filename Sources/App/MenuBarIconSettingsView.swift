@@ -93,7 +93,7 @@ struct MenuBarIconSettingsView: View {
 
                 Text(AppL10n.settings(
                     "menuBarIcon.description",
-                    defaultValue: "统一设置浅色和深色菜单栏图标，导入时会保留原图。"
+                    defaultValue: "统一设置菜单栏图标，自动适应浅色和深色外观。"
                 ))
                     .font(PluginSettingsTheme.Typography.rowDescription)
                     .foregroundStyle(.secondary)
@@ -131,7 +131,7 @@ private struct MenuBarIconEditorControls: View {
             contentOnlyRow {
                 Text(AppL10n.settings(
                     "menuBarIcon.sourceDescription",
-                    defaultValue: "支持图片、轻量 GIF/MP4 和在线动态图标；导入时会保留原图。"
+                    defaultValue: "支持透明背景的图标和轻量动画，也可从在线图库选择。"
                 ))
                     .font(PluginSettingsTheme.Typography.rowDescription)
                     .foregroundStyle(.secondary)
