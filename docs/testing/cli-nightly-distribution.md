@@ -32,7 +32,7 @@ Do not remove quarantine attributes or re-sign the executable if validation fail
 
 ## Try the CLI without installing it
 
-Install `MacTools Nightly.app` from the DMG and launch it once. In **Settings > General > Command Line**, enable Command-Line Integration. Allow the MacTools Nightly background item in **System Settings > General > Login Items** if macOS requests approval.
+Install `MacTools Nightly.app` from the DMG and launch it once. In **Settings > Plugins > Marketplace**, install **Night Shift** from the Nightly catalog and wait until it is shown as installed. If `night-shift/toggle` does not appear after installation, relaunch MacTools Nightly once so the plugin can activate. Then, in **Settings > General > Command Line**, enable Command-Line Integration. Allow the MacTools Nightly background item in **System Settings > General > Login Items** if macOS requests approval.
 
 Use the extracted executable by absolute path first:
 
