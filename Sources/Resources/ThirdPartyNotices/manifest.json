@@ -170,6 +170,48 @@
         "Plugins/SystemSoftRestart/RestartHelper/Sources/LaunchdRestart.c"
       ],
       "licenseFile": "Sources/Resources/ThirdPartyNotices/FixTim-LICENSE.txt"
+    },
+    {
+      "id": "ice",
+      "name": "Ice",
+      "repository": "https://github.com/jordanbaird/Ice",
+      "revision": "11edd39115f3f43a83ae114b5348df6a0e1741cf",
+      "license": "GPL-3.0-or-later",
+      "gpl3Compatibility": "compatible",
+      "relationship": "adapted",
+      "products": [
+        "plugin:menu-bar-hidden"
+      ],
+      "paths": [
+        "Plugins/MenuBarHidden/Sources/MenuBarHiddenDivider.swift",
+        "Plugins/MenuBarHidden/Sources/MenuBarHiddenEventSynthesis.swift",
+        "Plugins/MenuBarHidden/Sources/MenuBarHiddenIconCache.swift",
+        "Plugins/MenuBarHidden/Sources/MenuBarHiddenItemEnumerator.swift",
+        "Plugins/MenuBarHidden/Sources/MenuBarHiddenManager.swift",
+        "Plugins/MenuBarHidden/Sources/MenuBarHiddenModels.swift"
+      ],
+      "licenseFile": "Sources/Resources/ThirdPartyNotices/Ice-LICENSE.txt"
+    },
+    {
+      "id": "thaw",
+      "name": "Thaw",
+      "repository": "https://github.com/thaw-app/Thaw",
+      "revision": "7b1001b60ee55e74a21b3342434808ee355cae05",
+      "license": "GPL-3.0-or-later",
+      "gpl3Compatibility": "compatible",
+      "relationship": "adapted",
+      "products": [
+        "plugin:menu-bar-hidden"
+      ],
+      "paths": [
+        "Plugins/MenuBarHidden/Sources/MenuBarHiddenDivider.swift",
+        "Plugins/MenuBarHidden/Sources/MenuBarHiddenEventSynthesis.swift",
+        "Plugins/MenuBarHidden/Sources/MenuBarHiddenIconCache.swift",
+        "Plugins/MenuBarHidden/Sources/MenuBarHiddenItemEnumerator.swift",
+        "Plugins/MenuBarHidden/Sources/MenuBarHiddenManager.swift",
+        "Plugins/MenuBarHidden/Sources/MenuBarHiddenModels.swift"
+      ],
+      "licenseFile": "Sources/Resources/ThirdPartyNotices/Thaw-LICENSE.txt"
     }
   ]
 }
