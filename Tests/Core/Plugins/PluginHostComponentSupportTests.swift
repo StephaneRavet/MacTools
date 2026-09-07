@@ -162,6 +162,95 @@ final class PluginHostComponentSupportTests: XCTestCase {
         ])
     }
 
+    func testPermissionRefreshClearsSettingsGuidanceAfterGrant() throws {
+        let plugin = MockComponentPanelPlugin(
+            id: "component",
+            permissionRequirements: [.init(
+                id: "input-monitoring",
+                kind: .inputMonitoring,
+                title: "Input Monitoring",
+                description: "Read input events."
+            )],
+            settingsPage: .form(description: "Component settings", sections: []),
+            isPermissionGranted: false
+        )
+        let host = makeHost(plugins: [plugin])
+        let refreshCallCount = plugin.refreshCallCount
+        XCTAssertEqual(host.pluginSettingsItems.first?.missingPermissionCards.count, 1)
+
+        plugin.isPermissionGranted = true
+        host.permissionCoordinator.refresh()
+
+        XCTAssertEqual(host.permissionCoordinator.items.first?.status, .granted)
+        XCTAssertEqual(host.permissionCards.first?.statusTone, .positive)
+        let settings = try XCTUnwrap(host.pluginSettingsItems.first)
+        XCTAssertEqual(settings.permissionCards.first?.statusTone, .positive)
+        XCTAssertTrue(settings.missingPermissionCards.isEmpty)
+        XCTAssertEqual(plugin.refreshCallCount, refreshCallCount)
+        XCTAssertTrue(plugin.handledPermissionIDs.isEmpty)
+    }
+
+    func testPermissionRefreshAddsSettingsGuidanceAfterRevocation() throws {
+        let plugin = MockComponentPanelPlugin(
+            id: "component",
+            permissionRequirements: [.init(
+                id: "input-monitoring",
+                kind: .inputMonitoring,
+                title: "Input Monitoring",
+                description: "Read input events."
+            )]
+        )
+        let host = makeHost(plugins: [plugin])
+        let refreshCallCount = plugin.refreshCallCount
+        XCTAssertTrue(host.pluginSettingsItems.isEmpty)
+
+        plugin.isPermissionGranted = false
+        host.permissionCoordinator.refresh()
+
+        XCTAssertEqual(host.permissionCoordinator.items.first?.status, .attention)
+        let settings = try XCTUnwrap(host.pluginSettingsItems.first)
+        XCTAssertEqual(settings.missingPermissionCards.map(\.permissionID), ["input-monitoring"])
+        XCTAssertEqual(plugin.refreshCallCount, refreshCallCount)
+        XCTAssertTrue(plugin.handledPermissionIDs.isEmpty)
+    }
+
+    func testPermissionRecheckPublishesSynchronousPluginRefreshChanges() throws {
+        let plugins = ["first", "second"].map { id in
+            MockComponentPanelPlugin(
+                id: id,
+                isActive: true,
+                permissionRequirements: [.init(
+                    id: "input-monitoring",
+                    kind: .inputMonitoring,
+                    title: "Input Monitoring",
+                    description: "Read input events."
+                )]
+            )
+        }
+        let host = makeHost(plugins: plugins)
+        let refreshCallCounts = plugins.map(\.refreshCallCount)
+        XCTAssertTrue(host.componentItems.allSatisfy(\.isActive))
+        XCTAssertTrue(host.pluginSettingsItems.isEmpty)
+        for plugin in plugins {
+            plugin.onRefresh = { [weak plugin] in
+                plugin?.isPermissionGranted = false
+                plugin?.isActive = false
+                plugin?.onStateChange?()
+            }
+        }
+
+        let permission = try XCTUnwrap(host.permissionCoordinator.items.first)
+        host.permissionCoordinator.performAction(for: permission)
+
+        XCTAssertEqual(plugins.map(\.refreshCallCount), refreshCallCounts.map { $0 + 1 })
+        XCTAssertEqual(host.permissionCoordinator.items.first?.status, .attention)
+        XCTAssertEqual(host.pluginSettingsItems.count, 2)
+        XCTAssertTrue(host.pluginSettingsItems.allSatisfy {
+            $0.missingPermissionCards.map(\.permissionID) == ["input-monitoring"]
+        })
+        XCTAssertTrue(host.componentItems.allSatisfy { !$0.isActive })
+    }
+
     func testPluginSettingsExposeOnlyMissingPermissionsForTopGuidance() throws {
         let plugin = MockComponentPanelPlugin(
             id: "component",
@@ -1063,14 +1152,15 @@ private final class MockComponentPanelPlugin: MacToolsPlugin, PluginComponentPan
     var shortcutBindingResolver: ((String) -> ShortcutBinding?)?
     var requestDashboardPresentation: (() -> Void)?
     var requestComponentDetailPresentation: ((String) -> Void)?
-    private let isActive: Bool
+    var isActive: Bool
     private(set) var makeViewCallCount = 0
     private(set) var refreshCallCount = 0
     private(set) var localizationRefreshCount = 0
     private(set) var receivedPanelVisibilityValues: [Bool] = []
     private(set) var surfaceEvents: [SurfaceEvent] = []
     private(set) var shortcutBindingChanges: [ShortcutBindingChange] = []
-    private let isPermissionGranted: Bool
+    var isPermissionGranted: Bool
+    var onRefresh: (() -> Void)?
     private(set) var handledPermissionIDs: [String] = []
 
     init(
@@ -1139,6 +1229,7 @@ private final class MockComponentPanelPlugin: MacToolsPlugin, PluginComponentPan
 
     func refresh() {
         refreshCallCount += 1
+        onRefresh?()
     }
 
     func refreshLocalization() {

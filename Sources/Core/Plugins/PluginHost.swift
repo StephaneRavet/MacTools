@@ -3097,7 +3097,7 @@ final class PluginHost: ObservableObject {
             }
         }
 
-        rebuildPermissionProjections()
+        rebuildDerivedState()
     }
 
     @discardableResult
