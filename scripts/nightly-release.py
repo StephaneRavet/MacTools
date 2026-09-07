@@ -33,7 +33,8 @@ RELEASE_DOWNLOAD_TAG_PATTERN = re.compile(
     r"/releases/download/(nightly-[0-9]+-[0-9]+)/"
 )
 MAX_CLI_SIZE_BYTES = 64 * 1024 * 1024
-CLI_ARCHITECTURES = ("arm64", "x86_64")
+CLI_ARCHITECTURES = ("arm64",)
+NIGHTLY_RELEASE_INTERFACE_VERSION = 1
 
 
 def fail(message: str) -> None:
@@ -93,7 +94,7 @@ def make_metadata(
     build_number = f"{run_number}.{run_attempt}"
     tag = f"nightly-{run_number}-{run_attempt}"
     artifact_root = f"build/nightly/{tag}"
-    cli_archive_name = f"mactools-cli-{version}-{build_number}-macos-universal.zip"
+    cli_archive_name = f"mactools-cli-{version}-{build_number}-macos-arm64.zip"
     metadata = {
         "SCHEME": "MacTools",
         "CONFIGURATION": "Nightly",
@@ -192,9 +193,9 @@ This prerelease is an automated snapshot of the current MacTools source. It inst
 - App version: `{version}`
 - Nightly build: `{build_number}`
 - Source commit: [`{source_sha}`](https://github.com/{repository}/commit/{source_sha})
-- Optional CLI: `mactools-cli-{version}-{build_number}-macos-universal.zip`
+- Optional CLI: `mactools-cli-{version}-{build_number}-macos-arm64.zip`
 
-The CLI is a separate, optional download and requires the matching Nightly app's Command-Line Integration. To roll back, publish a known-good source commit as a new Nightly build. Signed assets for an existing Nightly tag are never replaced.
+The CLI is a separate, optional download and requires the matching Nightly app's Command-Line Integration. Follow the [download and verification guide](https://github.com/{repository}/blob/{source_sha}/docs/testing/cli-nightly-distribution.md) before running it. To roll back, publish a known-good source commit that supports Nightly release interface v{NIGHTLY_RELEASE_INTERFACE_VERSION}. Signed assets for an existing Nightly tag are never replaced.
 """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(notes, encoding="utf-8")
@@ -377,7 +378,7 @@ def verify_cli_architectures(cli_path: pathlib.Path) -> None:
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         fail("Cannot inspect Nightly CLI architectures")
     if set(result.stdout.split()) != set(CLI_ARCHITECTURES):
-        fail("Nightly CLI must contain exactly the arm64 and x86_64 architectures")
+        fail("Nightly CLI must contain exactly the arm64 architecture")
 
 
 def verify_cli_slice_metadata(
@@ -386,25 +387,13 @@ def verify_cli_slice_metadata(
     expected_version: str,
     expected_build_number: str,
 ) -> None:
-    with tempfile.TemporaryDirectory() as temporary_directory:
-        for architecture in CLI_ARCHITECTURES:
-            slice_path = pathlib.Path(temporary_directory) / f"mactools-{architecture}"
-            try:
-                subprocess.run(
-                    [
-                        "/usr/bin/lipo", str(cli_path), "-thin", architecture,
-                        "-output", str(slice_path),
-                    ],
-                    capture_output=True, text=True, check=True, timeout=30,
-                )
-            except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
-                fail(f"Cannot extract Nightly CLI {architecture} metadata")
-            if executable_bundle_identifier(slice_path) != expected_identifier:
-                fail(f"Nightly CLI {architecture} embedded identifier does not match")
-            if executable_bundle_versions(slice_path) != (
-                expected_version, expected_build_number,
-            ):
-                fail(f"Nightly CLI {architecture} embedded version does not match")
+    architecture = CLI_ARCHITECTURES[0]
+    if executable_bundle_identifier(cli_path) != expected_identifier:
+        fail(f"Nightly CLI {architecture} embedded identifier does not match")
+    if executable_bundle_versions(cli_path) != (
+        expected_version, expected_build_number,
+    ):
+        fail(f"Nightly CLI {architecture} embedded version does not match")
 
 
 def verify_cli_dependencies(cli_path: pathlib.Path) -> None:
@@ -816,6 +805,8 @@ def parser() -> argparse.ArgumentParser:
     plugin_kit_version = subparsers.add_parser("plugin-kit-version")
     plugin_kit_version.add_argument("--plugins-dir", type=pathlib.Path, required=True)
 
+    subparsers.add_parser("release-interface-version")
+
     decision = subparsers.add_parser("publication-decision")
     decision.add_argument("--event-name", required=True)
     decision.add_argument("--source-sha", required=True)
@@ -906,6 +897,8 @@ def main() -> None:
         print(read_nightly_appcast_tag(args.input))
     elif args.command == "plugin-kit-version":
         print(discover_plugin_metadata(args.plugins_dir)["PLUGIN_KIT_VERSION"])
+    elif args.command == "release-interface-version":
+        print(NIGHTLY_RELEASE_INTERFACE_VERSION)
     elif args.command == "publication-decision":
         decision = publication_decision(args.event_name, args.source_sha, args.previous_source_sha)
         write_github_env(decision, args.github_output)

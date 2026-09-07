@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "Branch, tag, or commit to publish; use a known-good commit for rollback"
+        description: "Branch, tag, or commit to publish; rollback refs must support Nightly release interface v1"
         required: true
         default: main
         type: string
@@ -25,6 +25,7 @@ env:
   CONFIGURATION: Nightly
   DERIVED_DATA: build/DerivedDataNightly
   NIGHTLY_RETENTION_COUNT: 14
+  NIGHTLY_RELEASE_INTERFACE_VERSION: 1
 
 jobs:
   release:
@@ -40,7 +41,7 @@ jobs:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || 'main' }}
           fetch-depth: 0
 
-      - name: Set Nightly metadata
+      - name: Validate selected source release interface
         run: |
           SOURCE_SHA="$(git rev-parse HEAD)"
           git fetch origin main
@@ -48,6 +49,16 @@ jobs:
             echo "Nightly source $SOURCE_SHA is not part of origin/main; refusing to expose release credentials." >&2
             exit 1
           fi
+          if ! SOURCE_RELEASE_INTERFACE="$(scripts/nightly-release.py release-interface-version 2>/dev/null)" \
+            || [[ "$SOURCE_RELEASE_INTERFACE" != "$NIGHTLY_RELEASE_INTERFACE_VERSION" ]] \
+            || [[ ! -f docs/testing/cli-nightly-distribution.md ]]; then
+            echo "Nightly rollback refs must support release interface v${NIGHTLY_RELEASE_INTERFACE_VERSION}, including the CLI testing guide." >&2
+            exit 1
+          fi
+          echo "SOURCE_SHA=$SOURCE_SHA" >> "$GITHUB_ENV"
+
+      - name: Set Nightly metadata
+        run: |
           scripts/nightly-release.py metadata \
             --app-version-config Configs/AppVersion.xcconfig \
             --plugins-dir Plugins \
@@ -186,11 +197,14 @@ jobs:
           DEVELOPER_ID_CERT_P12: ${{ secrets.DEVELOPER_ID_CERT_P12 }}
           DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
         run: |
+          umask 077
           CERT_PATH="$RUNNER_TEMP/developer-id.p12"
           KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          trap 'rm -f "$CERT_PATH"' EXIT
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
           KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
 
-          echo "$DEVELOPER_ID_CERT_P12" | base64 --decode > "$CERT_PATH"
+          printf '%s' "$DEVELOPER_ID_CERT_P12" | base64 --decode > "$CERT_PATH"
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
@@ -212,8 +226,6 @@ jobs:
             exit 1
           fi
 
-          rm -f "$CERT_PATH"
-          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
           echo "SIGNING_IDENTITY=$SIGNING_IDENTITY" >> "$GITHUB_ENV"
 
       - name: Build unsigned Nightly app and plugins
@@ -241,6 +253,22 @@ jobs:
             --version "$VERSION" \
             --build-number "$BUILD_NUMBER" \
             --plugin-kit-version "$PLUGIN_KIT_VERSION"
+
+      - name: Prepare arm64 Nightly CLI
+        if: steps.nightly_gate.outputs.decision == 'publish'
+        run: |
+          CLI_PATH="$DERIVED_DATA/Build/Products/Nightly/mactools"
+          CLI_ARCHS="$(/usr/bin/lipo -archs "$CLI_PATH")"
+          if [[ "$CLI_ARCHS" != "arm64" ]]; then
+            [[ " $CLI_ARCHS " == *" arm64 "* ]] || { echo "Nightly CLI does not contain arm64." >&2; exit 1; }
+            THIN_CLI_PATH="$RUNNER_TEMP/mactools-arm64"
+            trap 'rm -f "$THIN_CLI_PATH"' EXIT
+            /usr/bin/lipo "$CLI_PATH" -thin arm64 -output "$THIN_CLI_PATH"
+            chmod 755 "$THIN_CLI_PATH"
+            mv "$THIN_CLI_PATH" "$CLI_PATH"
+          fi
+          [[ "$(/usr/bin/lipo -archs "$CLI_PATH")" == "arm64" ]] \
+            || { echo "Nightly CLI is not exactly arm64." >&2; exit 1; }
 
       - name: Sign app bundle
         if: steps.nightly_gate.outputs.decision == 'publish'
@@ -410,8 +438,10 @@ jobs:
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
         run: |
+          umask 077
           API_KEY_PATH="$RUNNER_TEMP/AuthKey_${ASC_API_KEY_ID}.p8"
-          echo "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$API_KEY_PATH"
+          trap 'rm -f "$API_KEY_PATH"' EXIT
+          printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$API_KEY_PATH"
 
           notarize_and_require_accepted() {
             local artifact="$1"
@@ -441,12 +471,16 @@ jobs:
           notarize_and_require_accepted "$CLI_ARCHIVE_PATH" "$RUNNER_TEMP/cli-notarization.json"
           xcrun stapler staple "$DMG_PATH"
           spctl -a -t open --context context:primary-signature -v "$DMG_PATH"
-          rm -f "$API_KEY_PATH"
 
-      - name: Generate Nightly notes, checksums, and appcast
+      - name: Remove release signing keychain before CLI execution
         if: steps.nightly_gate.outputs.decision == 'publish'
-        env:
-          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          [[ -n "${KEYCHAIN_PATH:-}" ]] || { echo "Release signing keychain path is missing." >&2; exit 1; }
+          security delete-keychain "$KEYCHAIN_PATH"
+          echo "KEYCHAIN_PATH=" >> "$GITHUB_ENV"
+
+      - name: Generate Nightly notes, checksums, and verify CLI
+        if: steps.nightly_gate.outputs.decision == 'publish'
         run: |
           DMG_DIRECTORY="$(dirname "$DMG_PATH")"
           DMG_NAME="$(basename "$DMG_PATH")"
@@ -462,23 +496,30 @@ jobs:
             --version "$VERSION" \
             --build-number "$BUILD_NUMBER"
           RELEASE_NOTES_PATH="$RUNNER_TEMP/nightly-release-notes.md"
-          NIGHTLY_APPCAST_PATH="$RUNNER_TEMP/nightly-appcast.xml"
           scripts/nightly-release.py notes \
             --output "$RELEASE_NOTES_PATH" \
             --repository "$GITHUB_REPOSITORY" \
             --version "$VERSION" \
             --build-number "$BUILD_NUMBER" \
             --source-sha "$SOURCE_SHA"
+          echo "RELEASE_NOTES_PATH=$RELEASE_NOTES_PATH" >> "$GITHUB_ENV"
 
+      - name: Generate signed Nightly appcast
+        if: steps.nightly_gate.outputs.decision == 'publish'
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          umask 077
+          NIGHTLY_APPCAST_PATH="$RUNNER_TEMP/nightly-appcast.xml"
           SIGN_UPDATE="$DERIVED_DATA/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update"
           if [[ ! -x "$SIGN_UPDATE" ]]; then
             SIGN_UPDATE="$(find "$DERIVED_DATA/SourcePackages" -path "*/Sparkle/bin/sign_update" -type f -perm -111 | head -n 1)"
           fi
           [[ -n "$SIGN_UPDATE" && -x "$SIGN_UPDATE" ]] || { echo "Sparkle sign_update tool was not found." >&2; exit 1; }
           SPARKLE_KEY_PATH="$RUNNER_TEMP/sparkle_ed25519_key"
+          trap 'rm -f "$SPARKLE_KEY_PATH"' EXIT
           printf '%s' "$SPARKLE_PRIVATE_KEY" > "$SPARKLE_KEY_PATH"
           SIGN_OUTPUT="$("$SIGN_UPDATE" "$DMG_PATH" --ed-key-file "$SPARKLE_KEY_PATH")"
-          rm -f "$SPARKLE_KEY_PATH"
           ED_SIGNATURE="$(printf '%s' "$SIGN_OUTPUT" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')"
 
           scripts/nightly-release.py appcast \
@@ -491,10 +532,7 @@ jobs:
             --file-size "$(stat -f '%z' "$DMG_PATH")" \
             --publication-date "$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S +0000')" \
             --release-notes "$RELEASE_NOTES_PATH"
-          {
-            echo "RELEASE_NOTES_PATH=$RELEASE_NOTES_PATH"
-            echo "NIGHTLY_APPCAST_PATH=$NIGHTLY_APPCAST_PATH"
-          } >> "$GITHUB_ENV"
+          echo "NIGHTLY_APPCAST_PATH=$NIGHTLY_APPCAST_PATH" >> "$GITHUB_ENV"
 
       - name: Create immutable-by-workflow draft prerelease
         id: nightly_release

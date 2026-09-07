@@ -103,6 +103,14 @@ class NightlyPublicationDecisionTests(unittest.TestCase):
 
 
 class NightlyReleaseTests(unittest.TestCase):
+    def test_release_interface_version_is_explicit_and_queryable(self) -> None:
+        self.assertEqual(nightly_release.NIGHTLY_RELEASE_INTERFACE_VERSION, 1)
+        result = subprocess.run(
+            [str(SCRIPT_PATH), "release-interface-version"],
+            check=True, capture_output=True, text=True,
+        )
+        self.assertEqual(result.stdout, "1\n")
+
     def test_signed_helper_verifier_accepts_only_nightly_identifiers(self) -> None:
         signatures = [
             subprocess.CompletedProcess([], 0, "", f"Identifier=com.example.mactools.plugins.{plugin}.smc-helper.nightly\n")
@@ -141,11 +149,11 @@ class NightlyReleaseTests(unittest.TestCase):
         self.assertEqual(metadata["TAG"], "nightly-512-3")
         self.assertEqual(
             metadata["CLI_ARCHIVE_PATH"],
-            f"build/nightly/nightly-512-3/mactools-cli-{version}-512.3-macos-universal.zip",
+            f"build/nightly/nightly-512-3/mactools-cli-{version}-512.3-macos-arm64.zip",
         )
         self.assertEqual(
             metadata["CLI_SHA256_PATH"],
-            f"build/nightly/nightly-512-3/mactools-cli-{version}-512.3-macos-universal.zip.sha256",
+            f"build/nightly/nightly-512-3/mactools-cli-{version}-512.3-macos-arm64.zip.sha256",
         )
         self.assertNotIn("PROJECT_NAME", metadata)
         self.assertEqual(metadata["PLUGIN_KIT_VERSION"], "5")
@@ -171,8 +179,14 @@ class NightlyReleaseTests(unittest.TestCase):
             self.assertIn("MacTools Nightly is unstable", notes)
             self.assertIn("Signed assets for an existing Nightly tag are never replaced", notes)
             self.assertIn("github.com/example/MacTools/commit/", notes)
-            self.assertIn("mactools-cli-1.2.1-512.1-macos-universal.zip", notes)
+            self.assertIn("mactools-cli-1.2.1-512.1-macos-arm64.zip", notes)
             self.assertIn("separate, optional download", notes)
+            self.assertIn("supports Nightly release interface v1", notes)
+            self.assertIn(
+                "https://github.com/example/MacTools/blob/"
+                f"{'a' * 40}/docs/testing/cli-nightly-distribution.md",
+                notes,
+            )
 
     def test_appcast_uses_dedicated_asset_and_numeric_build(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -495,7 +509,7 @@ class NightlyCLIArchiveTests(unittest.TestCase):
         self.cli = self.root / "built-mactools"
         self.cli.write_bytes(b"signed mactools fixture")
         self.cli.chmod(0o755)
-        self.archive = self.root / "mactools-cli-1.2.1-512.1-macos-universal.zip"
+        self.archive = self.root / "mactools-cli-1.2.1-512.1-macos-arm64.zip"
         self.checksum = pathlib.Path(str(self.archive) + ".sha256")
 
     def package(self) -> None:
@@ -553,35 +567,27 @@ class NightlyCLIArchiveTests(unittest.TestCase):
         dependencies.assert_called_once_with(extracted)
         version_output.assert_called_once_with(extracted, "1.2.1", "512.1")
 
-    def test_slice_metadata_verifier_checks_both_architectures(self) -> None:
+    def test_slice_metadata_verifier_inspects_thin_cli_directly(self) -> None:
         with mock.patch.object(
-            nightly_release.subprocess, "run",
-            return_value=subprocess.CompletedProcess([], 0, "", ""),
-        ) as run, mock.patch.object(
             nightly_release, "executable_bundle_identifier",
-            side_effect=["com.example.cli", "com.example.cli"],
-        ), mock.patch.object(
+            return_value="com.example.cli",
+        ) as identifier, mock.patch.object(
             nightly_release, "executable_bundle_versions",
-            side_effect=[("1.2.1", "512.1"), ("1.2.1", "512.1")],
-        ):
+            return_value=("1.2.1", "512.1"),
+        ) as versions:
             nightly_release.verify_cli_slice_metadata(
                 self.cli, "com.example.cli", "1.2.1", "512.1",
             )
-        self.assertEqual(
-            [call.args[0][3] for call in run.call_args_list],
-            list(nightly_release.CLI_ARCHITECTURES),
-        )
+        identifier.assert_called_once_with(self.cli)
+        versions.assert_called_once_with(self.cli)
 
         with mock.patch.object(
-            nightly_release.subprocess, "run",
-            return_value=subprocess.CompletedProcess([], 0, "", ""),
-        ), mock.patch.object(
             nightly_release, "executable_bundle_identifier",
-            side_effect=["com.example.cli", "com.example.other"],
+            return_value="com.example.other",
         ), mock.patch.object(
             nightly_release, "executable_bundle_versions",
             return_value=("1.2.1", "512.1"),
-        ), self.assertRaisesRegex(SystemExit, "x86_64 embedded identifier"):
+        ), self.assertRaisesRegex(SystemExit, "arm64 embedded identifier"):
             nightly_release.verify_cli_slice_metadata(
                 self.cli, "com.example.cli", "1.2.1", "512.1",
             )
@@ -603,8 +609,8 @@ class NightlyCLIArchiveTests(unittest.TestCase):
                 self.archive, self.checksum, "com.example", "TEAM123", "1.2.1", "512.1",
             )
 
-    def test_architecture_verifier_requires_exact_universal_slices(self) -> None:
-        for output, accepted in [("arm64 x86_64\n", True), ("arm64\n", False), ("arm64 x86_64 i386\n", False)]:
+    def test_architecture_verifier_requires_exact_arm64_slice(self) -> None:
+        for output, accepted in [("arm64\n", True), ("arm64 x86_64\n", False), ("x86_64\n", False)]:
             with self.subTest(output=output), mock.patch.object(
                 nightly_release.subprocess, "run",
                 return_value=subprocess.CompletedProcess([], 0, output, ""),
@@ -632,7 +638,6 @@ class NightlyCLIArchiveTests(unittest.TestCase):
                 nightly_release.subprocess, "run",
                 side_effect=[
                     subprocess.CompletedProcess([], 0, "", ""),
-                    subprocess.CompletedProcess([], 0, "", signature),
                     subprocess.CompletedProcess([], 0, "", signature),
                 ],
             ) as run:
@@ -672,7 +677,7 @@ class NightlyCLIArchiveTests(unittest.TestCase):
         self.assertIn("anchor apple generic", requirement)
         self.assertIn("1.2.840.113635.100.6.1.13", requirement)
 
-    def test_signature_verifier_rejects_nonconforming_second_slice(self) -> None:
+    def test_signature_verifier_rejects_nonconforming_arm64_slice(self) -> None:
         valid = (
             "Identifier=com.example.mactools.nightly.cli\n"
             "Authority=Developer ID Application: Example (TEAM123)\n"
@@ -684,19 +689,15 @@ class NightlyCLIArchiveTests(unittest.TestCase):
             nightly_release.subprocess, "run",
             side_effect=[
                 subprocess.CompletedProcess([], 0, "", ""),
-                subprocess.CompletedProcess([], 0, "", valid),
                 subprocess.CompletedProcess([], 0, "", invalid),
             ],
-        ), self.assertRaisesRegex(SystemExit, "x86_64 signature"):
+        ), self.assertRaisesRegex(SystemExit, "arm64 signature"):
             nightly_release.verify_cli_signature(
                 self.cli, "com.example.mactools.nightly.cli", "TEAM123",
             )
 
     def test_dependency_verifier_allows_only_system_paths(self) -> None:
         allowed = (
-            f"{self.cli} (architecture x86_64):\n"
-            "\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0)\n"
-            "\t/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation (compatibility version 300.0.0)\n"
             f"{self.cli} (architecture arm64):\n"
             "\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0)\n"
             "\t/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation (compatibility version 300.0.0)\n"

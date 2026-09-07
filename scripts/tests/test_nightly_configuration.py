@@ -69,12 +69,23 @@ class NightlyConfigurationTests(unittest.TestCase):
 
     def test_nightly_workflow_packages_notarizes_verifies_and_publishes_cli(self) -> None:
         workflow = (REPO_ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
+        build = workflow.split("- name: Build unsigned Nightly app and plugins", 1)[1].split("\n      - name:", 1)[0]
+        prepare_cli = workflow.split("- name: Prepare arm64 Nightly CLI", 1)[1].split("\n      - name:", 1)[0]
+        certificate = workflow.split("- name: Import Developer ID certificate", 1)[1].split("\n      - name:", 1)[0]
         package = workflow.split("- name: Package signed Nightly CLI", 1)[1].split("\n      - name:", 1)[0]
         notarize = workflow.split("- name: Notarize Nightly app and CLI distributions", 1)[1].split("\n      - name:", 1)[0]
-        checksums = workflow.split("- name: Generate Nightly notes, checksums, and appcast", 1)[1].split("\n      - name:", 1)[0]
+        keychain_cleanup = workflow.split("- name: Remove release signing keychain before CLI execution", 1)[1].split("\n      - name:", 1)[0]
+        checksums = workflow.split("- name: Generate Nightly notes, checksums, and verify CLI", 1)[1].split("\n      - name:", 1)[0]
+        appcast = workflow.split("- name: Generate signed Nightly appcast", 1)[1].split("\n      - name:", 1)[0]
         publication = workflow.split("- name: Upload and publish verified Nightly assets", 1)[1].split("\n      - name:", 1)[0]
         artifact = workflow.split("- name: Upload Nightly workflow artifact", 1)[1].split("\n      - name:", 1)[0]
 
+        self.assertNotIn("ARCHS=arm64", build)
+        self.assertIn('/usr/bin/lipo "$CLI_PATH" -thin arm64', prepare_cli)
+        self.assertIn('[[ "$(/usr/bin/lipo -archs "$CLI_PATH")" == "arm64" ]]', prepare_cli)
+        self.assertIn("umask 077", certificate)
+        self.assertIn("trap 'rm -f \"$CERT_PATH\"' EXIT", certificate)
+        self.assertLess(certificate.index('echo "KEYCHAIN_PATH=$KEYCHAIN_PATH"'), certificate.index("security create-keychain"))
         self.assertIn("scripts/nightly-release.py package-cli", package)
         self.assertIn('--output "$CLI_ARCHIVE_PATH"', package)
         self.assertIn('notarytool submit "$artifact"', notarize)
@@ -82,9 +93,17 @@ class NightlyConfigurationTests(unittest.TestCase):
         self.assertGreaterEqual(notarize.count("--output-format json"), 1)
         self.assertIn("scripts/nightly-release.py verify-notarization", notarize)
         self.assertIn("notarytool log", notarize)
+        self.assertIn("umask 077", notarize)
+        self.assertIn("trap 'rm -f \"$API_KEY_PATH\"' EXIT", notarize)
+        self.assertIn('security delete-keychain "$KEYCHAIN_PATH"', keychain_cleanup)
         self.assertIn('shasum -a 256 "$CLI_NAME"', checksums)
         self.assertIn("scripts/nightly-release.py verify-cli-archive", checksums)
         self.assertIn('--team-identifier "${{ secrets.APPLE_DEVELOPMENT_TEAM }}"', checksums)
+        self.assertNotIn("SPARKLE_PRIVATE_KEY", checksums)
+        self.assertIn("SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}", appcast)
+        self.assertIn("umask 077", appcast)
+        self.assertIn("trap 'rm -f \"$SPARKLE_KEY_PATH\"' EXIT", appcast)
+        self.assertLess(workflow.index("Remove release signing keychain before CLI execution"), workflow.index("scripts/nightly-release.py verify-cli-archive"))
         for variable in ["CLI_ARCHIVE_PATH", "CLI_SHA256_PATH"]:
             self.assertIn(f'"${variable}"', publication)
             self.assertIn(f'${{{{ env.{variable} }}}}', artifact)
@@ -166,7 +185,12 @@ class NightlyConfigurationTests(unittest.TestCase):
         for step in steps:
             name = step.splitlines()[0]
             with self.subTest(step=name):
-                if name in ["Checkout selected source", "Set Nightly metadata", "Decide whether to publish Nightly"]:
+                if name in [
+                    "Checkout selected source",
+                    "Validate selected source release interface",
+                    "Set Nightly metadata",
+                    "Decide whether to publish Nightly",
+                ]:
                     continue
                 if name == "Report unchanged Nightly":
                     self.assertIn("if: steps.nightly_gate.outputs.decision == 'unchanged'", step)
@@ -174,6 +198,72 @@ class NightlyConfigurationTests(unittest.TestCase):
                     self.assertIn("if: always() && steps.nightly_gate.outputs.decision == 'publish'", step)
                 else:
                     self.assertIn("if: steps.nightly_gate.outputs.decision == 'publish'", step)
+
+    def test_selected_source_interface_gate_accepts_only_complete_current_interface(self) -> None:
+        workflow = (REPO_ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
+        validation = workflow.split(
+            "- name: Validate selected source release interface", 1,
+        )[1].split("\n      - name:", 1)[0]
+        script = textwrap.dedent(validation.split("        run: |\n", 1)[1])
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = pathlib.Path(temporary_directory)
+            scripts = root / "scripts"
+            guide = root / "docs/testing/cli-nightly-distribution.md"
+            binaries = root / "bin"
+            scripts.mkdir(parents=True)
+            binaries.mkdir()
+
+            git = binaries / "git"
+            git.write_text(
+                "#!/bin/bash\n"
+                "set -eu\n"
+                "if [[ \"$1 $2\" == \"rev-parse HEAD\" ]]; then printf '%s\\n' \"$MOCK_SOURCE_SHA\"; fi\n",
+                encoding="utf-8",
+            )
+            git.chmod(0o755)
+
+            interface = scripts / "nightly-release.py"
+            interface.write_text(
+                "#!/bin/bash\n"
+                "set -eu\n"
+                "[[ \"$MOCK_INTERFACE\" != absent ]] || exit 2\n"
+                "printf '%s\\n' \"$MOCK_INTERFACE\"\n",
+                encoding="utf-8",
+            )
+            interface.chmod(0o755)
+
+            scenarios = [
+                ("1", True, True),
+                ("absent", True, False),
+                ("2", True, False),
+                ("1", False, False),
+            ]
+            for index, (reported_interface, has_guide, accepted) in enumerate(scenarios):
+                with self.subTest(interface=reported_interface, has_guide=has_guide):
+                    if guide.exists():
+                        guide.unlink()
+                    if has_guide:
+                        guide.parent.mkdir(parents=True, exist_ok=True)
+                        guide.write_text("guide", encoding="utf-8")
+                    github_env = root / f"github-env-{index}"
+                    environment = dict(
+                        os.environ,
+                        PATH=f"{binaries}:{os.environ['PATH']}",
+                        GITHUB_ENV=str(github_env),
+                        MOCK_INTERFACE=reported_interface,
+                        MOCK_SOURCE_SHA="a" * 40,
+                        NIGHTLY_RELEASE_INTERFACE_VERSION="1",
+                    )
+                    result = subprocess.run(
+                        ["bash", "-e", "-o", "pipefail", "-c", script],
+                        cwd=root, env=environment, capture_output=True, text=True,
+                    )
+                    self.assertEqual(result.returncode == 0, accepted, result.stderr)
+                    if accepted:
+                        self.assertEqual(github_env.read_text(), f"SOURCE_SHA={'a' * 40}\n")
+                    else:
+                        self.assertIn("rollback refs must support release interface v1", result.stderr)
 
     def test_gate_reads_advertised_release_and_manual_runs_bypass_lookup(self) -> None:
         workflow = (REPO_ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
@@ -272,6 +362,14 @@ class NightlyConfigurationTests(unittest.TestCase):
         self.assertIn("vars.ENABLE_NIGHTLY_RELEASES == 'true'", workflow)
         self.assertIn('git merge-base --is-ancestor "$SOURCE_SHA" origin/main', workflow)
         self.assertIn("refusing to expose release credentials", workflow)
+        self.assertLess(
+            workflow.index('git merge-base --is-ancestor "$SOURCE_SHA" origin/main'),
+            workflow.index("release-interface-version"),
+        )
+        self.assertLess(
+            workflow.index("release-interface-version"),
+            workflow.index("Validate required secrets"),
+        )
         self.assertIn("--draft", workflow)
         self.assertIn("--latest=false", workflow)
         self.assertNotIn("--clobber", workflow)

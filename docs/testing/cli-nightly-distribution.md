@@ -2,7 +2,7 @@
 
 MacTools Nightly publishes the experimental `mactools` CLI as a separate optional download. The CLI is not embedded in `MacTools Nightly.app` and does not increase the app download size. Use the app and CLI from the same [`nightly-*` prerelease](https://github.com/ggbond268/MacTools/releases) for this test.
 
-The Nightly archive is a notarized ZIP named `mactools-cli-<version>-<build>-macos-universal.zip`. It contains one signed executable for Apple silicon and Intel Macs. Nightly CLI and stable CLI identities are intentionally separate; this prototype connects only to the Nightly app's broker.
+The Nightly archive is a notarized ZIP named `mactools-cli-<version>-<build>-macos-arm64.zip`. It contains one signed executable for Apple silicon Macs. Nightly CLI and stable CLI identities are intentionally separate; this prototype connects only to the Nightly app's broker.
 
 ## Download and verify
 
@@ -10,15 +10,15 @@ Download these four assets from one Nightly release:
 
 - `MacTools-Nightly.dmg`
 - `MacTools-Nightly.sha256`
-- `mactools-cli-<version>-<build>-macos-universal.zip`
+- `mactools-cli-<version>-<build>-macos-arm64.zip`
 - the matching `.zip.sha256`
 
 From the download directory, replace the example archive name with the exact release asset name:
 
 ```bash
 shasum -a 256 -c MacTools-Nightly.sha256
-shasum -a 256 -c mactools-cli-1.2.1-123.1-macos-universal.zip.sha256
-ditto -x -k mactools-cli-1.2.1-123.1-macos-universal.zip mactools-cli
+shasum -a 256 -c mactools-cli-1.2.1-123.1-macos-arm64.zip.sha256
+ditto -x -k mactools-cli-1.2.1-123.1-macos-arm64.zip mactools-cli
 codesign --verify --strict --verbose=2 mactools-cli/mactools
 codesign --display --verbose=4 mactools-cli/mactools 2>&1 \
   | grep -E '^(Identifier|Authority|TeamIdentifier)='
@@ -26,7 +26,7 @@ lipo -archs mactools-cli/mactools
 spctl --assess --type execute --verbose=2 mactools-cli/mactools
 ```
 
-The architecture output must contain exactly `arm64 x86_64`. The signing identifier must end in `.mactools.nightly.cli`, the authority must be the MacTools Developer ID Application certificate, and the Team ID must match the Nightly app.
+The architecture output must contain exactly `arm64`. The signing identifier must end in `.mactools.nightly.cli`, the authority must be the MacTools Developer ID Application certificate, and the Team ID must match the Nightly app.
 
 Do not remove quarantine attributes or re-sign the executable if validation fails. Confirm that all files came from the same GitHub release, verify their checksums again, and report the release tag and validation output.
 
