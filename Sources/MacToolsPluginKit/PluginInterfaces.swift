@@ -38,6 +38,20 @@ public protocol PluginSettingsSearchFocusing: AnyObject {
     func focusSettingsSearch()
 }
 
+/// Optional metadata for a plugin settings page with contextual search.
+/// The host uses this to avoid routing Command-F to an unavailable field and to
+/// reveal lazily rendered search content before requesting focus.
+@MainActor
+public protocol PluginSettingsSearchFocusMetadataProviding: AnyObject {
+    var isSettingsSearchAvailable: Bool { get }
+    var settingsSearchFocusTarget: PluginSettingsSearchTarget? { get }
+}
+
+public extension PluginSettingsSearchFocusMetadataProviding {
+    var isSettingsSearchAvailable: Bool { true }
+    var settingsSearchFocusTarget: PluginSettingsSearchTarget? { nil }
+}
+
 public enum PluginShortcutEventPhase: Sendable {
     case pressed
     case released
@@ -179,6 +193,41 @@ public protocol MenuBarHostStatusItemRecovering: AnyObject {
 @MainActor
 public protocol PluginSettingsPresenting: AnyObject {
     var requestSettingsPresentation: (() -> Void)? { get set }
+}
+
+/// Optional protocol for plugins that need to open the host Dashboard from custom UI,
+/// such as an additional menu-bar status item.
+///
+/// This remains separate from `MacToolsPlugin` so older dynamic plugins do not gain a
+/// new witness-table requirement.
+@MainActor
+public protocol PluginDashboardPresenting: AnyObject {
+    var requestDashboardPresentation: (() -> Void)? { get set }
+}
+
+/// Content for a host-owned detail panel launched from a Dashboard component.
+public struct PluginComponentDetailContent {
+    public let id: String
+    public let title: String
+    public let content: AnyView
+
+    public init(id: String, title: String, content: AnyView) {
+        self.id = id
+        self.title = title
+        self.content = content
+    }
+}
+
+/// Optional protocol for Dashboard components that provide a pinned secondary detail surface.
+/// The host owns window placement and dismissal; the plugin owns the detail content.
+@MainActor
+public protocol PluginComponentDetailPresenting: AnyObject {
+    var requestComponentDetailPresentation: ((String) -> Void)? { get set }
+
+    func makeComponentDetailContent(
+        detailID: String,
+        dismiss: @escaping () -> Void
+    ) -> PluginComponentDetailContent?
 }
 
 /// An exact host-selected window target for commands that may outlive a temporary MacTools surface.

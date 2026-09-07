@@ -68,7 +68,7 @@
     }
   },
   "version": "1.0.0",
-  "minHostVersion": "1.2.0",
+  "minHostVersion": "1.2.1",
   "pluginKitVersion": 5,
   "bundleRelativePath": "AppleShortcuts.bundle",
   "factoryClass": "AppleShortcutsPlugin.AppleShortcutsPluginFactory",
@@ -97,7 +97,7 @@
     "documentationURL": "https://github.com/ggbond268/MacTools#plugins-and-settings",
     "supportURL": "https://github.com/ggbond268/MacTools/issues",
     "publisher": "MacTools",
-    "license": "Apache-2.0"
+    "license": "GPL-3.0-only"
   },
   "discovery": {
     "keywords": [

@@ -494,6 +494,7 @@ final class MacToolsSearchTests: XCTestCase {
                 "navigation.actions-and-shortcuts",
                 "navigation.automation",
                 "navigation.marketplace",
+                "navigation.permissions",
                 "navigation.general",
                 "navigation.about"
             ]
@@ -1277,7 +1278,7 @@ private final class SearchableTestPlugin:
     }
 
     func permissionState(for permissionID: String) -> PluginPermissionState {
-        PluginPermissionState(isGranted: true, footnote: nil)
+        PluginPermissionState(isGranted: false, footnote: nil)
     }
 
     func handleAction(_ action: PluginPanelAction) {}

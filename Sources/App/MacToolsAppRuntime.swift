@@ -28,7 +28,14 @@ final class MacToolsAppRuntime {
         registry: pluginHost.actionRegistry,
         workflows: { [weak self] in self?.pluginHost.automationController.workflows ?? [] }
     )
-    private lazy var cliHostBridge = CLIHostBridge(discovery: cliDiscovery)
+    private lazy var cliActionRunner = CLIActionRunner(
+        discovery: cliDiscovery,
+        executor: pluginHost.actionExecutor
+    )
+    private lazy var cliHostBridge = CLIHostBridge(
+        discovery: cliDiscovery,
+        runner: cliActionRunner
+    )
     private lazy var settingsRecoveryScheduler = SettingsRecoveryScheduler { [weak self] in
         self?.windowRouter?.showSettings()
     }
@@ -226,6 +233,9 @@ final class MacToolsAppRuntime {
             },
             isPluginConfigurationAvailable: { [weak self] pluginID in
                 self?.pluginHost.hasPluginSettings(pluginID: pluginID) == true
+            },
+            isMarketplaceDetailAvailable: { [weak self] target in
+                self?.pluginHost.hasMarketplaceDetail(target: target) == true
             },
             actionIdentityResolver: { [weak self] request in
                 self?.pluginHost.actionRunLinkService.resolve(request)

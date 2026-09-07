@@ -109,9 +109,9 @@ final class PluginPackageManifestTests: XCTestCase {
             ),
             (
                 path: "Plugins/TrackpadGestures/plugin.json",
-                minimum: "1.2.0",
-                compatibleHost: "1.2.0",
-                incompatibleHost: "1.1.6"
+                minimum: "1.2.1",
+                compatibleHost: "1.2.1",
+                incompatibleHost: "1.2.0"
             ),
         ]
         for expectation in expectations {
@@ -260,7 +260,7 @@ final class PluginPackageManifestTests: XCTestCase {
         XCTAssertEqual(manifest.actions?.providers.first?.kind, "static")
         XCTAssertEqual(
             manifest.actions?.providers.first?.staticActions.map(\.id),
-            ["toggle", "set-enabled"]
+            ["toggle", "set-enabled", "set-mode"]
         )
         XCTAssertEqual(manifest.requirements?.architectures, ["arm64", "x86_64"])
         XCTAssertEqual(manifest.privacy?.networkUse, "none")
@@ -273,7 +273,9 @@ final class PluginPackageManifestTests: XCTestCase {
             setup: manifest.setup,
             relationships: manifest.relationships
         )
-        XCTAssertTrue(searchKeywords.contains("Toggle Appearance"))
+        let toggleTitle = try XCTUnwrap(manifest.actions?.providers.first?.staticActions.first?.title)
+        XCTAssertEqual(toggleTitle.values["en"], "Toggle Appearance")
+        XCTAssertTrue(toggleTitle.values.values.contains(where: searchKeywords.contains))
         XCTAssertTrue(searchKeywords.contains("night-shift"))
     }
 

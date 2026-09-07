@@ -63,7 +63,7 @@
     "action.cleanup.description": "@localizable.detail.diagnostics.cleanup.desc"
   },
   "version": "1.1.0",
-  "minHostVersion": "1.2.0",
+  "minHostVersion": "1.2.1",
   "pluginKitVersion": 5,
   "bundleRelativePath": "Homebrew.bundle",
   "factoryClass": "HomebrewPlugin.HomebrewPluginFactory",
@@ -90,7 +90,7 @@
     "documentationURL": "https://github.com/ggbond268/MacTools#plugins-and-settings",
     "supportURL": "https://github.com/ggbond268/MacTools/issues",
     "publisher": "MacTools",
-    "license": "Apache-2.0"
+    "license": "GPL-3.0-only"
   },
   "discovery": {
     "keywords": [
