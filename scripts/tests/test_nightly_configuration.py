@@ -206,9 +206,79 @@ class NightlyConfigurationTests(unittest.TestCase):
         self.assertEqual(workflow.count("persist-credentials: false"), 3)
         self.assertNotIn("persist-credentials: true", workflow)
         artifact_name = "MacTools-Nightly-${{ github.run_number }}.${{ github.run_attempt }}"
-        self.assertEqual(workflow.count(f"name: {artifact_name}"), 3)
+        self.assertEqual(workflow.count(f"name: {artifact_name}"), 1)
         self.assertEqual(workflow.count("uses: actions/upload-artifact@v4"), 1)
         self.assertEqual(workflow.count("uses: actions/download-artifact@v5"), 2)
+
+    def test_nightly_retries_preserve_the_producing_build_candidate(self) -> None:
+        workflow = (REPO_ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
+        jobs = dict(re.findall(
+            r"^  (build|verify_cli|publish):\n(.*?)(?=^  \w+:\n|\Z)",
+            workflow, re.MULTILINE | re.DOTALL,
+        ))
+
+        def step(job: str, name: str) -> str:
+            return jobs[job].split(f"- name: {name}\n", 1)[1].split("\n      - name:", 1)[0]
+
+        def render(value: str, context: dict[str, str]) -> str:
+            return re.sub(r"\$\{\{\s*([^}]+?)\s*\}\}", lambda match: context[match[1]], value)
+
+        def run_metadata(job: str, attempt: int, context: dict[str, str]) -> tuple[dict, dict]:
+            metadata_step = render(step(job, "Set Nightly metadata"), context)
+            with tempfile.TemporaryDirectory() as temporary_directory:
+                root = pathlib.Path(temporary_directory)
+                environment = dict(
+                    os.environ,
+                    GITHUB_ENV=str(root / "env"), GITHUB_OUTPUT=str(root / "output"),
+                    GITHUB_RUN_NUMBER="512", GITHUB_RUN_ATTEMPT=str(attempt),
+                    GITHUB_REPOSITORY="ggbond268/MacTools", SOURCE_SHA="a" * 40,
+                )
+                if "        env:\n" in metadata_step:
+                    environment.update(re.findall(
+                        r"^          ([A-Z_]+): (.+)$",
+                        metadata_step.split("        run: |\n", 1)[0], re.MULTILINE,
+                    ))
+                script = textwrap.dedent(metadata_step.split("        run: |\n", 1)[1])
+                result = subprocess.run(
+                    ["bash", "-e", "-o", "pipefail", "-c", script],
+                    cwd=REPO_ROOT, env=environment, capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+                def values(name: str) -> dict[str, str]:
+                    path = root / name
+                    return dict(line.split("=", 1) for line in path.read_text().splitlines()) if path.exists() else {}
+
+                return values("env"), values("output")
+
+        build_outputs = jobs["build"].split("    outputs:\n", 1)[1].split("\n    steps:", 1)[0]
+        metadata_id = re.search(r"^        id: (\w+)$", step("build", "Set Nightly metadata"), re.MULTILINE)[1]
+        upload_id = re.search(r"^        id: (\w+)$", step("build", "Upload immutable Nightly candidate"), re.MULTILINE)[1]
+        for build_attempt, retry_attempt in [(1, 1), (1, 2), (1, 3), (2, 2), (2, 3)]:
+            with self.subTest(build_attempt=build_attempt, retry_attempt=retry_attempt):
+                built, outputs = run_metadata("build", build_attempt, {})
+                artifact_id = str(9000 + build_attempt)
+                context = {
+                    "steps.nightly_gate.outputs.decision": "publish",
+                    "steps.selected_source.outputs.source_sha": "a" * 40,
+                    f"steps.{upload_id}.outputs.artifact-id": artifact_id,
+                    **{f"steps.{metadata_id}.outputs.{key}": value for key, value in outputs.items()},
+                }
+                context.update({
+                    f"needs.build.outputs.{key}": render(value, context)
+                    for key, value in re.findall(r"^      (\w+): (.+)$", build_outputs, re.MULTILINE)
+                })
+                self.assertEqual(built["BUILD_NUMBER"], f"512.{build_attempt}")
+                for job in ("verify_cli", "publish"):
+                    with self.subTest(job=job):
+                        metadata, _ = run_metadata(job, retry_attempt, context)
+                        self.assertEqual(metadata, built)
+                        download = jobs[job].split("uses: actions/download-artifact@v5\n", 1)[1].split("\n      - name:", 1)[0]
+                        resolved = render(download, {**context, **{f"env.{key}": value for key, value in metadata.items()}})
+                        inputs = dict(re.findall(r"^          ([\w-]+): (.+)$", resolved, re.MULTILINE))
+                        self.assertEqual(inputs["artifact-ids"], artifact_id)
+                        self.assertNotIn("name", inputs)
+                        self.assertEqual(inputs["path"], built["ARTIFACT_ROOT"])
 
     def test_selected_source_interface_gate_accepts_only_complete_current_interface(self) -> None:
         workflow = (REPO_ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")

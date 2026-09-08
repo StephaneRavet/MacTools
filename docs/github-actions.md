@@ -23,6 +23,8 @@ Nightly 不需要新的发布证书或私钥。合并实现后，维护者只需
 
 Release assets are staged with their final public filenames before upload. A failed run deletes the draft release it created, while each successful run removes abandoned drafts in the workflow-owned `nightly-<run>-<attempt>` namespace. Published Nightly retention remains limited to matching prereleases and never selects stable releases or unrelated prereleases.
 
+If CLI verification or an upload fails before the prerelease is published, use **Re-run failed jobs** to reuse the successful build's immutable artifact ID and original build number. Retrying all jobs creates a new candidate and build number. If the prerelease is already public, or draft cleanup failed, use **Re-run all jobs**; existing releases and their assets are never overwritten.
+
 手动 `Build` workflow 产生的 Debug artifact 仍然只是 CI 调试输出，不会发布到 GitHub Releases、官网或任何 Sparkle feed，也不是第二个 Nightly 渠道。
 
 ### Nightly isolation and unchanged-run verification

@@ -36,6 +36,8 @@ jobs:
     outputs:
       decision: ${{ steps.nightly_gate.outputs.decision }}
       source_sha: ${{ steps.selected_source.outputs.source_sha }}
+      run_attempt: ${{ steps.nightly_metadata.outputs.run_attempt }}
+      artifact_id: ${{ steps.nightly_candidate.outputs.artifact-id }}
 
     steps:
       - name: Checkout selected source
@@ -64,6 +66,7 @@ jobs:
           echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Set Nightly metadata
+        id: nightly_metadata
         run: |
           scripts/nightly-release.py metadata \
             --app-version-config Configs/AppVersion.xcconfig \
@@ -73,6 +76,7 @@ jobs:
             --run-number "$GITHUB_RUN_NUMBER" \
             --run-attempt "$GITHUB_RUN_ATTEMPT" \
             --github-env "$GITHUB_ENV"
+          echo "run_attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
 
       - name: Decide whether to publish Nightly
         id: nightly_gate
@@ -554,6 +558,7 @@ jobs:
             > "$ARTIFACT_ROOT/cli-verification-context.json"
 
       - name: Upload immutable Nightly candidate
+        id: nightly_candidate
         if: steps.nightly_gate.outputs.decision == 'publish'
         uses: actions/upload-artifact@v4
         with:
@@ -596,6 +601,8 @@ jobs:
           persist-credentials: false
 
       - name: Set Nightly metadata
+        env:
+          BUILD_RUN_ATTEMPT: ${{ needs.build.outputs.run_attempt }}
         run: |
           scripts/nightly-release.py metadata \
             --app-version-config Configs/AppVersion.xcconfig \
@@ -603,14 +610,14 @@ jobs:
             --repository "$GITHUB_REPOSITORY" \
             --source-sha "${{ needs.build.outputs.source_sha }}" \
             --run-number "$GITHUB_RUN_NUMBER" \
-            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --run-attempt "$BUILD_RUN_ATTEMPT" \
             --github-env "$GITHUB_ENV"
 
       - name: Download immutable Nightly candidate
         uses: actions/download-artifact@v5
         with:
-          name: MacTools-Nightly-${{ github.run_number }}.${{ github.run_attempt }}
-          path: build/nightly/nightly-${{ github.run_number }}-${{ github.run_attempt }}
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: ${{ env.ARTIFACT_ROOT }}
 
       - name: Verify and execute archived CLI
         run: |
@@ -643,6 +650,8 @@ jobs:
           persist-credentials: false
 
       - name: Set Nightly metadata
+        env:
+          BUILD_RUN_ATTEMPT: ${{ needs.build.outputs.run_attempt }}
         run: |
           scripts/nightly-release.py metadata \
             --app-version-config Configs/AppVersion.xcconfig \
@@ -650,14 +659,14 @@ jobs:
             --repository "$GITHUB_REPOSITORY" \
             --source-sha "${{ needs.build.outputs.source_sha }}" \
             --run-number "$GITHUB_RUN_NUMBER" \
-            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --run-attempt "$BUILD_RUN_ATTEMPT" \
             --github-env "$GITHUB_ENV"
 
       - name: Download verified immutable Nightly candidate
         uses: actions/download-artifact@v5
         with:
-          name: MacTools-Nightly-${{ github.run_number }}.${{ github.run_attempt }}
-          path: build/nightly/nightly-${{ github.run_number }}-${{ github.run_attempt }}
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: ${{ env.ARTIFACT_ROOT }}
 
       - name: Set transferred artifact paths
         run: |
