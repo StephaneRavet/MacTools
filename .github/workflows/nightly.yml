@@ -198,7 +198,7 @@ jobs:
             CODE_SIGN_IDENTITY= \
             test \
             -quiet
-          ./scripts/plugins/verify-plugin-kit-v5-binary-compatibility.sh \
+          ./scripts/plugins/verify-plugin-kit-v6-binary-compatibility.sh \
             "$DERIVED_DATA/Build/Products/Debug"
 
       - name: Import Developer ID certificate

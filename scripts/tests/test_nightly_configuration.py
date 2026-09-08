@@ -153,7 +153,7 @@ class NightlyConfigurationTests(unittest.TestCase):
 
         self.assertIn("timeout-minutes: 60", build_workflow)
         self.assertIn(
-            './scripts/plugins/verify-plugin-kit-v5-binary-compatibility.sh \\\n'
+            './scripts/plugins/verify-plugin-kit-v6-binary-compatibility.sh \\\n'
             '            "$DERIVED_DATA/Build/Products/Debug"',
             nightly_workflow,
         )

@@ -1,6 +1,7 @@
 ---
 release: app
 type: added
+area: Updates
 ---
 
-Added an isolated Nightly channel with same-commit app and plugin updates. Scheduled releases skip unchanged inputs; manual builds remain available for update testing and rollback.
+Added a separate Nightly channel with matching app and plugin builds and settings isolated from stable MacTools.

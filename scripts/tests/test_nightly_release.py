@@ -56,7 +56,7 @@ class NightlyPublicationDecisionTests(unittest.TestCase):
 
     def test_generated_appcast_and_nested_catalog_changes_do_not_publish(self) -> None:
         self.commit_file("docs/nightly/appcast.xml", "generated feed")
-        source = self.commit_file("docs/nightly/plugins/v5/catalog.json", "generated catalog")
+        source = self.commit_file("docs/nightly/plugins/v6/catalog.json", "generated catalog")
         self.assertEqual(self.decide(source)["decision"], "unchanged")
 
     def test_source_change_publishes_even_alongside_generated_changes(self) -> None:
@@ -156,11 +156,11 @@ class NightlyReleaseTests(unittest.TestCase):
             f"build/nightly/nightly-512-3/mactools-cli-{version}-512.3-macos-arm64.zip.sha256",
         )
         self.assertNotIn("PROJECT_NAME", metadata)
-        self.assertEqual(metadata["PLUGIN_KIT_VERSION"], "5")
+        self.assertEqual(metadata["PLUGIN_KIT_VERSION"], "6")
         self.assertNotIn("PLUGIN_CATALOG_MINIMUM_HOST_VERSION", metadata)
         self.assertEqual(
             metadata["NIGHTLY_PLUGIN_CATALOG_RELATIVE_PATH"],
-            "docs/nightly/plugins/v5/catalog.json",
+            "docs/nightly/plugins/v6/catalog.json",
         )
 
     def test_release_warning_is_first(self) -> None:
