@@ -45,7 +45,7 @@ if [[ -e "$CLI_DEST" || -L "$CLI_DEST" ]]; then
   echo "mactools-dev already exists; choose another local command name" >&2
   exit 1
 fi
-/usr/bin/python3 - "$CLI_SOURCE" "$CLI_DEST" <<'PY'
+if ! /usr/bin/python3 - "$CLI_SOURCE" "$CLI_DEST" <<'PY'
 import os
 import sys
 
@@ -54,6 +54,9 @@ try:
 except OSError as error:
     raise SystemExit(f"refusing to replace CLI destination: {error}")
 PY
+then
+  exit 1
+fi
 "$CLI_DEST" doctor --json
 ```
 

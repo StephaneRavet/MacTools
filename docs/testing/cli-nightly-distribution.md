@@ -18,17 +18,23 @@ From the download directory, replace the example archive name with the exact rel
 ```bash
 shasum -a 256 -c MacTools-Nightly.sha256
 shasum -a 256 -c mactools-cli-1.2.1-123.1-macos-arm64.zip.sha256
-ditto -x -k mactools-cli-1.2.1-123.1-macos-arm64.zip mactools-cli
-codesign --verify --strict --verbose=2 mactools-cli/mactools
-codesign --display --verbose=4 mactools-cli/mactools 2>&1 \
+CLI_TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/mactools-cli-test.XXXXXX")"
+if ! ditto -x -k mactools-cli-1.2.1-123.1-macos-arm64.zip "$CLI_TEST_DIR"; then
+  exit 1
+fi
+CLI_PATH="$CLI_TEST_DIR/mactools"
+codesign --verify --strict --verbose=2 "$CLI_PATH"
+codesign --display --verbose=4 "$CLI_PATH" 2>&1 \
   | grep -E '^(Identifier|Authority|TeamIdentifier)='
-lipo -archs mactools-cli/mactools
-spctl --assess --type execute --verbose=2 mactools-cli/mactools
+lipo -archs "$CLI_PATH"
+spctl --assess --type execute --verbose=2 "$CLI_PATH"
 ```
 
 The architecture output must contain exactly `arm64`. The signing identifier must end in `.mactools.nightly.cli`, the authority must be the MacTools Developer ID Application certificate, and the Team ID must match the Nightly app.
 
 Do not remove quarantine attributes or re-sign the executable if validation fails. Confirm that all files came from the same GitHub release, verify their checksums again, and report the release tag and validation output.
+
+Keep the same terminal session open for the remaining snippets; they reuse the unique `CLI_TEST_DIR` and `CLI_PATH` values created above.
 
 ## Try the CLI without installing it
 
@@ -37,18 +43,18 @@ Install `MacTools Nightly.app` from the DMG and launch it once. In **Settings > 
 Use the extracted executable by absolute path first:
 
 ```bash
-"$PWD/mactools-cli/mactools" version --json
-"$PWD/mactools-cli/mactools" doctor --json
-"$PWD/mactools-cli/mactools" actions list --json
+"$CLI_PATH" version --json
+"$CLI_PATH" doctor --json
+"$CLI_PATH" actions list --json
 ```
 
 Copy complete action IDs from `actions list`; do not shorten or reconstruct them. To exercise and restore the harmless Night Shift toggle, record its current state and run:
 
 ```bash
-"$PWD/mactools-cli/mactools" actions describe night-shift/toggle --json
-"$PWD/mactools-cli/mactools" actions availability night-shift/toggle --json
-"$PWD/mactools-cli/mactools" actions run night-shift/toggle --timeout 15 --json
-"$PWD/mactools-cli/mactools" actions run night-shift/toggle --timeout 15 --json
+"$CLI_PATH" actions describe night-shift/toggle --json
+"$CLI_PATH" actions availability night-shift/toggle --json
+"$CLI_PATH" actions run night-shift/toggle --timeout 15 --json
+"$CLI_PATH" actions run night-shift/toggle --timeout 15 --json
 ```
 
 Both runs should exit 0 and restore the recorded state. If either run fails, restore Night Shift manually in System Settings.
@@ -59,13 +65,13 @@ After the absolute-path checks pass, install the signed executable under a Night
 
 ```bash
 mkdir -p "$HOME/.local/bin"
-CLI_SOURCE="$PWD/mactools-cli/mactools"
+CLI_SOURCE="$CLI_PATH"
 CLI_DEST="$HOME/.local/bin/mactools-nightly"
 if [[ -e "$CLI_DEST" || -L "$CLI_DEST" ]]; then
   echo "mactools-nightly already exists; choose another test location" >&2
   exit 1
 fi
-/usr/bin/python3 - "$CLI_SOURCE" "$CLI_DEST" <<'PY'
+if ! /usr/bin/python3 - "$CLI_SOURCE" "$CLI_DEST" <<'PY'
 import os
 import sys
 
@@ -74,6 +80,9 @@ try:
 except OSError as error:
     raise SystemExit(f"refusing to replace CLI destination: {error}")
 PY
+then
+  exit 1
+fi
 codesign --verify --strict --verbose=2 "$CLI_DEST"
 "$CLI_DEST" doctor --json
 ```
@@ -81,7 +90,7 @@ codesign --verify --strict --verbose=2 "$CLI_DEST"
 The direct `symlink` system call fails atomically if any filesystem entry appears at the destination, including a directory or dangling symlink. Keep the extracted directory while using the command. Add `$HOME/.local/bin` to `PATH` if needed. In the same download directory, remove only a link that still targets the extracted CLI used above:
 
 ```bash
-CLI_SOURCE="$PWD/mactools-cli/mactools"
+CLI_SOURCE="$CLI_PATH"
 CLI_DEST="$HOME/.local/bin/mactools-nightly"
 if [[ -L "$CLI_DEST" && "$(readlink "$CLI_DEST")" == "$CLI_SOURCE" ]]; then
   rm "$CLI_DEST"

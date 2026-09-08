@@ -37,7 +37,8 @@ CLI_ARCHITECTURES = ("arm64",)
 CLI_DEPLOYMENT_TARGET = "14.0"
 NIGHTLY_RELEASE_INTERFACE_VERSION = 2
 DEPENDENCY_LINE_PATTERN = re.compile(
-    r"^[ \t]+(.+) \(compatibility version [^,()]+, current version [^,()]+"
+    r"^[ \t]+(.+) \(compatibility version [0-9]+(?:\.[0-9]+){0,2}, "
+    r"current version [0-9]+(?:\.[0-9]+){0,2}"
     r"(?:, (?:weak|reexport|upward))?\)$"
 )
 
@@ -419,7 +420,7 @@ def verify_cli_dependencies(cli_path: pathlib.Path) -> None:
     dependencies = []
     for line in lines[1:]:
         if not line.strip():
-            continue
+            fail("Nightly CLI dynamic-library dependency output is malformed")
         match = DEPENDENCY_LINE_PATTERN.fullmatch(line)
         if match is None:
             fail("Nightly CLI dynamic-library dependency output is malformed")

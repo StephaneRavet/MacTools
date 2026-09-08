@@ -767,6 +767,9 @@ class NightlyCLIArchiveTests(unittest.TestCase):
             allowed.replace(f"{self.cli} (architecture arm64):", "unexpected header"),
             allowed + "/tmp/unindented continuation\n",
             allowed.replace("/usr/lib/libSystem", "/usr/lib/lib\x01System"),
+            allowed.replace("compatibility version 1.0.0", "compatibility version one"),
+            allowed.replace("current version 1351.0.0", "current version 1351.x.0"),
+            allowed + "\n",
             f"{self.cli}:\n",
         ]
         for output in malformed_outputs:
