@@ -282,6 +282,14 @@ class NightlyConfigurationTests(unittest.TestCase):
 
     def test_selected_source_interface_gate_accepts_only_complete_current_interface(self) -> None:
         workflow = (REPO_ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
+        required_interface = re.search(
+            r"^  NIGHTLY_RELEASE_INTERFACE_VERSION: (\d+)$", workflow, re.MULTILINE,
+        ).group(1)
+        declared_interface = subprocess.check_output(
+            [str(REPO_ROOT / "scripts/nightly-release.py"), "release-interface-version"],
+            text=True,
+        ).strip()
+        self.assertEqual(required_interface, declared_interface)
         validation = workflow.split(
             "- name: Validate selected source release interface", 1,
         )[1].split("\n      - name:", 1)[0]
@@ -315,10 +323,11 @@ class NightlyConfigurationTests(unittest.TestCase):
             interface.chmod(0o755)
 
             scenarios = [
-                ("2", True, True),
+                ("3", True, True),
                 ("absent", True, False),
                 ("1", True, False),
-                ("2", False, False),
+                ("2", True, False),
+                ("3", False, False),
             ]
             for index, (reported_interface, has_guide, accepted) in enumerate(scenarios):
                 with self.subTest(interface=reported_interface, has_guide=has_guide):
@@ -336,7 +345,7 @@ class NightlyConfigurationTests(unittest.TestCase):
                         GITHUB_OUTPUT=str(github_output),
                         MOCK_INTERFACE=reported_interface,
                         MOCK_SOURCE_SHA="a" * 40,
-                        NIGHTLY_RELEASE_INTERFACE_VERSION="2",
+                        NIGHTLY_RELEASE_INTERFACE_VERSION=required_interface,
                     )
                     result = subprocess.run(
                         ["bash", "-e", "-o", "pipefail", "-c", script],
@@ -347,7 +356,7 @@ class NightlyConfigurationTests(unittest.TestCase):
                         self.assertEqual(github_env.read_text(), f"SOURCE_SHA={'a' * 40}\n")
                         self.assertEqual(github_output.read_text(), f"source_sha={'a' * 40}\n")
                     else:
-                        self.assertIn("rollback refs must support release interface v2", result.stderr)
+                        self.assertIn("rollback refs must support release interface v3", result.stderr)
 
     def test_gate_reads_advertised_release_and_manual_runs_bypass_lookup(self) -> None:
         workflow = (REPO_ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")

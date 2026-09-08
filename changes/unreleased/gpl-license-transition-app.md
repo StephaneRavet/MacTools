@@ -4,4 +4,4 @@ type: changed
 area: Licensing
 ---
 
-MacTools now uses GPL-3.0-only and includes the applicable third-party notices.
+MacTools now uses GPL-3.0-only. App and Nightly CLI downloads include the license, with applicable third-party notices included in the app.

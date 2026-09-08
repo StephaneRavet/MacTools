@@ -104,12 +104,12 @@ class NightlyPublicationDecisionTests(unittest.TestCase):
 
 class NightlyReleaseTests(unittest.TestCase):
     def test_release_interface_version_is_explicit_and_queryable(self) -> None:
-        self.assertEqual(nightly_release.NIGHTLY_RELEASE_INTERFACE_VERSION, 2)
+        self.assertEqual(nightly_release.NIGHTLY_RELEASE_INTERFACE_VERSION, 3)
         result = subprocess.run(
             [str(SCRIPT_PATH), "release-interface-version"],
             check=True, capture_output=True, text=True,
         )
-        self.assertEqual(result.stdout, "2\n")
+        self.assertEqual(result.stdout, "3\n")
 
     def test_signed_helper_verifier_accepts_only_nightly_identifiers(self) -> None:
         signatures = [
@@ -181,7 +181,7 @@ class NightlyReleaseTests(unittest.TestCase):
             self.assertIn("github.com/example/MacTools/commit/", notes)
             self.assertIn("mactools-cli-1.2.1-512.1-macos-arm64.zip", notes)
             self.assertIn("separate, optional download", notes)
-            self.assertIn("supports Nightly release interface v2", notes)
+            self.assertIn("supports Nightly release interface v3", notes)
             self.assertIn(
                 "https://github.com/example/MacTools/blob/"
                 f"{'a' * 40}/docs/testing/cli-nightly-distribution.md",
@@ -517,17 +517,65 @@ class NightlyCLIArchiveTests(unittest.TestCase):
         digest = hashlib.sha256(self.archive.read_bytes()).hexdigest()
         self.checksum.write_text(f"{digest}  {self.archive.name}\n", encoding="utf-8")
 
-    def test_package_is_deterministic_and_contains_only_executable(self) -> None:
+    def test_package_is_deterministic_and_retains_license_and_executable(self) -> None:
         nightly_release.create_cli_archive(self.cli, self.archive)
         first = self.archive.read_bytes()
         nightly_release.create_cli_archive(self.cli, self.archive)
         self.assertEqual(self.archive.read_bytes(), first)
         with zipfile.ZipFile(self.archive) as archive:
-            self.assertEqual(archive.namelist(), ["mactools"])
-            entry = archive.infolist()[0]
+            self.assertEqual(archive.namelist(), ["mactools", "LICENSE"])
+            entry = archive.getinfo("mactools")
             self.assertTrue(stat.S_ISREG(entry.external_attr >> 16))
             self.assertEqual((entry.external_attr >> 16) & 0o777, 0o755)
             self.assertEqual(archive.read(entry), self.cli.read_bytes())
+            license_entry = archive.getinfo("LICENSE")
+            self.assertTrue(stat.S_ISREG(license_entry.external_attr >> 16))
+            self.assertEqual((license_entry.external_attr >> 16) & 0o777, 0o644)
+            self.assertEqual(archive.read(license_entry), (REPO_ROOT / "LICENSE").read_bytes())
+
+    def test_package_rejects_missing_or_empty_license_before_writing_archive(self) -> None:
+        license_path = self.root / "LICENSE"
+        with mock.patch.object(nightly_release, "CLI_LICENSE_PATH", license_path):
+            with self.assertRaisesRegex(SystemExit, "GPL license is missing"):
+                nightly_release.create_cli_archive(self.cli, self.archive)
+            self.assertFalse(self.archive.exists())
+            license_path.write_bytes(b"")
+            with self.assertRaisesRegex(SystemExit, "GPL license is empty"):
+                nightly_release.create_cli_archive(self.cli, self.archive)
+            self.assertFalse(self.archive.exists())
+
+    def test_archive_verifier_rejects_missing_or_invalid_license_before_execution(self) -> None:
+        for variant in ("missing", "modified", "truncated", "symlink", "executable", "duplicate"):
+            with self.subTest(variant=variant):
+                self.package()
+                with zipfile.ZipFile(self.archive) as archive:
+                    contents = [(entry, archive.read(entry)) for entry in archive.infolist()]
+                with zipfile.ZipFile(self.archive, "w") as archive:
+                    for entry, data in contents:
+                        if entry.filename == "LICENSE":
+                            if variant == "missing":
+                                continue
+                            if variant == "modified":
+                                data = b"!" + data[1:]
+                            elif variant == "truncated":
+                                data = data[:-1]
+                            elif variant == "symlink":
+                                entry.external_attr = (stat.S_IFLNK | 0o644) << 16
+                            elif variant == "executable":
+                                entry.external_attr = (stat.S_IFREG | 0o755) << 16
+                        archive.writestr(entry, data)
+                    if variant == "duplicate":
+                        with self.assertWarns(UserWarning):
+                            archive.writestr(contents[1][0], contents[1][1])
+                digest = hashlib.sha256(self.archive.read_bytes()).hexdigest()
+                self.checksum.write_text(f"{digest}  {self.archive.name}\n", encoding="utf-8")
+                message = "contain only" if variant in {"missing", "duplicate"} else "GPL license"
+                with mock.patch.object(nightly_release, "verify_cli_architectures") as inspect:
+                    with self.assertRaisesRegex(SystemExit, message):
+                        nightly_release.verify_cli_archive(
+                            self.archive, self.checksum, "com.example", "TEAM123", "1.2.1", "512.1",
+                        )
+                inspect.assert_not_called()
 
     def test_package_rejects_missing_or_nonexecutable_cli(self) -> None:
         self.cli.chmod(0o644)

@@ -87,7 +87,7 @@
 
 > **Shortcut settings:** Plugin and app shortcut rows keep the action icon/name beside the recorder field, wrapping groups between rows without splitting an individual shortcut control.
 
-> **System Status:** Both dashboard entry points keep readings current while open. Detail statistics use all retained readings in the selected range, independent of chart simplification, and pinned readings stay fixed until they leave that range. Expanded metric settings adapt to narrower windows. An optional global shortcut shows the menu-bar overview when available and otherwise opens the dashboard. The updated plugin requires MacTools 1.2.1 or later.
+> **System Status:** Both dashboard entry points keep readings current while open. Detail statistics use all retained readings in the selected range, independent of chart simplification, and pinned readings stay fixed until they leave that range. Expanded metric settings adapt to narrower windows. An optional global shortcut shows the menu-bar overview when available and otherwise opens the dashboard. The PluginKit v6 package requires MacTools 1.3.0 or later.
 
 > **Settings sidebar states:** The open page uses native macOS selection, keyboard search candidates use a focus outline until opened, and collapsed sections containing the open page use a separate accent marker. The plugin settings sort icon follows its section title color while the menu retains its native appearance.
 >

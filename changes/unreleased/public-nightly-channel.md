@@ -4,4 +4,4 @@ type: added
 area: Updates
 ---
 
-Added a separate Nightly channel with matching app and plugin builds and settings isolated from stable MacTools.
+Added a separate Nightly channel with isolated settings, matching app and plugin builds, and an optional signed and notarized CLI download.

@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "Branch, tag, or commit to publish; rollback refs must support Nightly release interface v2"
+        description: "Branch, tag, or commit to publish; rollback refs must support Nightly release interface v3"
         required: true
         default: main
         type: string
@@ -25,7 +25,7 @@ env:
   CONFIGURATION: Nightly
   DERIVED_DATA: build/DerivedDataNightly
   NIGHTLY_RETENTION_COUNT: 14
-  NIGHTLY_RELEASE_INTERFACE_VERSION: 2
+  NIGHTLY_RELEASE_INTERFACE_VERSION: 3
 
 jobs:
   build:

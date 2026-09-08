@@ -35,7 +35,8 @@ RELEASE_DOWNLOAD_TAG_PATTERN = re.compile(
 MAX_CLI_SIZE_BYTES = 64 * 1024 * 1024
 CLI_ARCHITECTURES = ("arm64",)
 CLI_DEPLOYMENT_TARGET = "14.0"
-NIGHTLY_RELEASE_INTERFACE_VERSION = 2
+CLI_LICENSE_PATH = pathlib.Path(__file__).resolve().parents[1] / "LICENSE"
+NIGHTLY_RELEASE_INTERFACE_VERSION = 3
 DEPENDENCY_LINE_PATTERN = re.compile(
     r"^[ \t]+(.+) \(compatibility version [0-9]+(?:\.[0-9]+){0,2}, "
     r"current version [0-9]+(?:\.[0-9]+){0,2}"
@@ -296,18 +297,33 @@ print(info?["CFBundleVersion"] as? String ?? "")
     return values[0], values[1]
 
 
+def read_cli_license() -> bytes:
+    try:
+        license_bytes = CLI_LICENSE_PATH.read_bytes()
+    except OSError:
+        fail("Repository GPL license is missing or unreadable")
+    if not license_bytes:
+        fail("Repository GPL license is empty")
+    return license_bytes
+
+
 def create_cli_archive(cli_path: pathlib.Path, output_path: pathlib.Path) -> None:
     if not cli_path.is_file() or not cli_path.stat().st_mode & stat.S_IXUSR:
         fail(f"Nightly CLI is missing or not executable: {cli_path}")
     if not 0 < cli_path.stat().st_size <= MAX_CLI_SIZE_BYTES:
         fail(f"Nightly CLI has an invalid size: {cli_path}")
+    contents = [
+        ("mactools", cli_path.read_bytes(), 0o755),
+        ("LICENSE", read_cli_license(), 0o644),
+    ]
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    info = zipfile.ZipInfo("mactools", date_time=(1980, 1, 1, 0, 0, 0))
-    info.compress_type = zipfile.ZIP_DEFLATED
-    info.create_system = 3
-    info.external_attr = (stat.S_IFREG | 0o755) << 16
     with zipfile.ZipFile(output_path, "w") as archive:
-        archive.writestr(info, cli_path.read_bytes())
+        for name, data, mode in contents:
+            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.create_system = 3
+            info.external_attr = (stat.S_IFREG | mode) << 16
+            archive.writestr(info, data)
 
 
 def verify_sha256(path: pathlib.Path, checksum_path: pathlib.Path) -> None:
@@ -506,12 +522,13 @@ def verify_cli_archive(
     execute: bool = True,
 ) -> None:
     verify_sha256(archive_path, checksum_path)
+    expected_license = read_cli_license()
     try:
         with zipfile.ZipFile(archive_path) as archive:
             entries = archive.infolist()
-            if len(entries) != 1 or entries[0].filename != "mactools":
-                fail("Nightly CLI archive must contain only the mactools executable")
-            entry = entries[0]
+            if len(entries) != 2 or {entry.filename for entry in entries} != {"mactools", "LICENSE"}:
+                fail("Nightly CLI archive must contain only mactools and LICENSE")
+            entry = archive.getinfo("mactools")
             if entry.flag_bits & 0x1:
                 fail("Nightly CLI archive must not encrypt the executable")
             mode = entry.external_attr >> 16
@@ -519,6 +536,16 @@ def verify_cli_archive(
                 fail("Nightly CLI archive executable must use mode 0755")
             if not 0 < entry.file_size <= MAX_CLI_SIZE_BYTES:
                 fail("Nightly CLI archive executable has an invalid size")
+            license_entry = archive.getinfo("LICENSE")
+            license_mode = license_entry.external_attr >> 16
+            if (
+                license_entry.flag_bits & 0x1
+                or not stat.S_ISREG(license_mode)
+                or license_mode & 0o777 != 0o644
+                or license_entry.file_size != len(expected_license)
+                or archive.read(license_entry) != expected_license
+            ):
+                fail("Nightly CLI archive GPL license is missing, modified, or has invalid metadata")
             cli_bytes = archive.read(entry)
     except (OSError, zipfile.BadZipFile, RuntimeError):
         fail("Nightly CLI archive cannot be read")

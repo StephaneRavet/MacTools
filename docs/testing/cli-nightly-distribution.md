@@ -2,7 +2,7 @@
 
 MacTools Nightly publishes the experimental `mactools` CLI as a separate optional download. The CLI is not embedded in `MacTools Nightly.app` and does not increase the app download size. Use the app and CLI from the same [`nightly-*` prerelease](https://github.com/ggbond268/MacTools/releases) for this test.
 
-The Nightly archive is a notarized ZIP named `mactools-cli-<version>-<build>-macos-arm64.zip`. It contains one signed executable for Apple silicon Macs. Nightly CLI and stable CLI identities are intentionally separate; this prototype connects only to the Nightly app's broker.
+The Nightly archive is a notarized ZIP named `mactools-cli-<version>-<build>-macos-arm64.zip`. It contains the signed `mactools` executable for Apple silicon Macs and the GPL-3.0-only `LICENSE`. Nightly CLI and stable CLI identities are intentionally separate; this prototype connects only to the Nightly app's broker.
 
 ## Download and verify
 
