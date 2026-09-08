@@ -409,14 +409,26 @@ def verify_cli_dependencies(cli_path: pathlib.Path) -> None:
         )
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         fail("Cannot inspect Nightly CLI dynamic-library dependencies")
+    lines = result.stdout.splitlines()
+    expected_headers = {
+        f"{cli_path}:",
+        f"{cli_path} (architecture {CLI_ARCHITECTURES[0]}):",
+    }
+    if not lines or lines[0] not in expected_headers:
+        fail("Nightly CLI dynamic-library dependency output is malformed")
     dependencies = []
-    for line in result.stdout.splitlines():
-        if not line.startswith((" ", "\t")) or not line.strip():
+    for line in lines[1:]:
+        if not line.strip():
             continue
         match = DEPENDENCY_LINE_PATTERN.fullmatch(line)
         if match is None:
             fail("Nightly CLI dynamic-library dependency output is malformed")
-        dependencies.append(match.group(1))
+        dependency = match.group(1)
+        if any(ord(character) < 32 or ord(character) == 127 for character in dependency):
+            fail("Nightly CLI dynamic-library dependency output is malformed")
+        dependencies.append(dependency)
+    if not dependencies:
+        fail("Nightly CLI dynamic-library dependency output is malformed")
     unexpected = [
         dependency for dependency in dependencies
         if dependency != posixpath.normpath(dependency)

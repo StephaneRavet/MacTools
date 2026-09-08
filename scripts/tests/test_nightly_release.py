@@ -763,6 +763,19 @@ class NightlyCLIArchiveTests(unittest.TestCase):
         ), self.assertRaisesRegex(SystemExit, "output is malformed"):
             nightly_release.verify_cli_dependencies(self.cli)
 
+        malformed_outputs = [
+            allowed.replace(f"{self.cli} (architecture arm64):", "unexpected header"),
+            allowed + "/tmp/unindented continuation\n",
+            allowed.replace("/usr/lib/libSystem", "/usr/lib/lib\x01System"),
+            f"{self.cli}:\n",
+        ]
+        for output in malformed_outputs:
+            with self.subTest(output=output), mock.patch.object(
+                nightly_release.subprocess, "run",
+                return_value=subprocess.CompletedProcess([], 0, output, ""),
+            ), self.assertRaisesRegex(SystemExit, "output is malformed"):
+                nightly_release.verify_cli_dependencies(self.cli)
+
     def test_deployment_target_verifier_requires_macos_14(self) -> None:
         valid = (
             f"{self.cli}:\nLoad command 1\n"

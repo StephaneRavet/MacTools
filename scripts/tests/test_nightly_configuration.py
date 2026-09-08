@@ -447,11 +447,22 @@ class NightlyConfigurationTests(unittest.TestCase):
         guide = (REPO_ROOT / "docs/testing/cli-nightly-distribution.md").read_text(
             encoding="utf-8",
         )
+        phase_zero_guide = (REPO_ROOT / "docs/testing/cli-phase-0.md").read_text(
+            encoding="utf-8",
+        )
 
         self.assertIn('$HOME/.local/bin/mactools-nightly', guide)
-        self.assertIn('test ! -e "$HOME/.local/bin/mactools-nightly"', guide)
+        self.assertIn('[[ -e "$CLI_DEST" || -L "$CLI_DEST" ]]', guide)
+        self.assertIn('os.symlink(sys.argv[1], sys.argv[2])', guide)
+        self.assertNotIn("ln -sf", guide)
+        self.assertIn('[[ -L "$CLI_DEST" && "$(readlink "$CLI_DEST")" == "$CLI_SOURCE" ]]', guide)
         self.assertNotIn('$HOME/.local/bin/mactools"', guide)
         self.assertNotIn('rm "$HOME/.local/bin/mactools"', guide)
+        self.assertIn('$HOME/.local/bin/mactools-dev', phase_zero_guide)
+        self.assertIn('[[ -e "$CLI_DEST" || -L "$CLI_DEST" ]]', phase_zero_guide)
+        self.assertIn('os.symlink(sys.argv[1], sys.argv[2])', phase_zero_guide)
+        self.assertNotIn("ln -sf", phase_zero_guide)
+        self.assertNotIn('$HOME/.local/bin/mactools"', phase_zero_guide)
 
     def test_pages_deploy_waits_for_successful_nightly_workflow(self) -> None:
         workflow = (REPO_ROOT / ".github/workflows/pages.yml").read_text(encoding="utf-8")

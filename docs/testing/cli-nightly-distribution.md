@@ -59,16 +59,36 @@ After the absolute-path checks pass, install the signed executable under a Night
 
 ```bash
 mkdir -p "$HOME/.local/bin"
-test ! -e "$HOME/.local/bin/mactools-nightly" || { echo "mactools-nightly already exists; choose another test location" >&2; exit 1; }
-/usr/bin/install -m 0755 "$PWD/mactools-cli/mactools" "$HOME/.local/bin/mactools-nightly"
-codesign --verify --strict --verbose=2 "$HOME/.local/bin/mactools-nightly"
-"$HOME/.local/bin/mactools-nightly" doctor --json
+CLI_SOURCE="$PWD/mactools-cli/mactools"
+CLI_DEST="$HOME/.local/bin/mactools-nightly"
+if [[ -e "$CLI_DEST" || -L "$CLI_DEST" ]]; then
+  echo "mactools-nightly already exists; choose another test location" >&2
+  exit 1
+fi
+/usr/bin/python3 - "$CLI_SOURCE" "$CLI_DEST" <<'PY'
+import os
+import sys
+
+try:
+    os.symlink(sys.argv[1], sys.argv[2])
+except OSError as error:
+    raise SystemExit(f"refusing to replace CLI destination: {error}")
+PY
+codesign --verify --strict --verbose=2 "$CLI_DEST"
+"$CLI_DEST" doctor --json
 ```
 
-Add `$HOME/.local/bin` to `PATH` if needed. Remove this installation with:
+The direct `symlink` system call fails atomically if any filesystem entry appears at the destination, including a directory or dangling symlink. Keep the extracted directory while using the command. Add `$HOME/.local/bin` to `PATH` if needed. In the same download directory, remove only a link that still targets the extracted CLI used above:
 
 ```bash
-rm "$HOME/.local/bin/mactools-nightly"
+CLI_SOURCE="$PWD/mactools-cli/mactools"
+CLI_DEST="$HOME/.local/bin/mactools-nightly"
+if [[ -L "$CLI_DEST" && "$(readlink "$CLI_DEST")" == "$CLI_SOURCE" ]]; then
+  rm "$CLI_DEST"
+else
+  echo "refusing to remove an entry not created for this extracted Nightly CLI" >&2
+  exit 1
+fi
 ```
 
 Disable Command-Line Integration before removing MacTools Nightly. The CLI and app may be upgraded independently when their negotiated protocol ranges overlap, but testing the same Nightly release removes avoidable compatibility uncertainty.
