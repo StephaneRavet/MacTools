@@ -104,12 +104,12 @@ class NightlyPublicationDecisionTests(unittest.TestCase):
 
 class NightlyReleaseTests(unittest.TestCase):
     def test_release_interface_version_is_explicit_and_queryable(self) -> None:
-        self.assertEqual(nightly_release.NIGHTLY_RELEASE_INTERFACE_VERSION, 1)
+        self.assertEqual(nightly_release.NIGHTLY_RELEASE_INTERFACE_VERSION, 2)
         result = subprocess.run(
             [str(SCRIPT_PATH), "release-interface-version"],
             check=True, capture_output=True, text=True,
         )
-        self.assertEqual(result.stdout, "1\n")
+        self.assertEqual(result.stdout, "2\n")
 
     def test_signed_helper_verifier_accepts_only_nightly_identifiers(self) -> None:
         signatures = [
@@ -181,7 +181,7 @@ class NightlyReleaseTests(unittest.TestCase):
             self.assertIn("github.com/example/MacTools/commit/", notes)
             self.assertIn("mactools-cli-1.2.1-512.1-macos-arm64.zip", notes)
             self.assertIn("separate, optional download", notes)
-            self.assertIn("supports Nightly release interface v1", notes)
+            self.assertIn("supports Nightly release interface v2", notes)
             self.assertIn(
                 "https://github.com/example/MacTools/blob/"
                 f"{'a' * 40}/docs/testing/cli-nightly-distribution.md",
@@ -548,6 +548,8 @@ class NightlyCLIArchiveTests(unittest.TestCase):
         ) as metadata, mock.patch.object(
             nightly_release, "verify_cli_architectures",
         ) as architectures, mock.patch.object(
+            nightly_release, "verify_cli_deployment_target",
+        ) as deployment, mock.patch.object(
             nightly_release, "verify_cli_signature",
         ) as signature, mock.patch.object(
             nightly_release, "verify_cli_dependencies",
@@ -558,6 +560,7 @@ class NightlyCLIArchiveTests(unittest.TestCase):
                 self.archive, self.checksum, "com.example", "TEAM123", "1.2.1", "512.1",
             )
         extracted = architectures.call_args.args[0]
+        deployment.assert_called_once_with(extracted)
         metadata.assert_called_once_with(
             extracted, "com.example.mactools.nightly.cli", "1.2.1", "512.1",
         )
@@ -566,6 +569,27 @@ class NightlyCLIArchiveTests(unittest.TestCase):
         )
         dependencies.assert_called_once_with(extracted)
         version_output.assert_called_once_with(extracted, "1.2.1", "512.1")
+
+    def test_archive_static_verification_does_not_execute_cli(self) -> None:
+        self.package()
+        with mock.patch.object(
+            nightly_release, "verify_cli_architectures",
+        ), mock.patch.object(
+            nightly_release, "verify_cli_deployment_target",
+        ), mock.patch.object(
+            nightly_release, "verify_cli_slice_metadata",
+        ), mock.patch.object(
+            nightly_release, "verify_cli_signature",
+        ), mock.patch.object(
+            nightly_release, "verify_cli_dependencies",
+        ), mock.patch.object(
+            nightly_release, "verify_cli_version_output",
+        ) as version_output:
+            nightly_release.verify_cli_archive(
+                self.archive, self.checksum, "com.example", "TEAM123",
+                "1.2.1", "512.1", execute=False,
+            )
+        version_output.assert_not_called()
 
     def test_slice_metadata_verifier_inspects_thin_cli_directly(self) -> None:
         with mock.patch.object(
@@ -699,8 +723,8 @@ class NightlyCLIArchiveTests(unittest.TestCase):
     def test_dependency_verifier_allows_only_system_paths(self) -> None:
         allowed = (
             f"{self.cli} (architecture arm64):\n"
-            "\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0)\n"
-            "\t/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation (compatibility version 300.0.0)\n"
+            "\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1351.0.0)\n"
+            "\t/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation (compatibility version 300.0.0, current version 3100.0.0)\n"
         )
         with mock.patch.object(
             nightly_release.subprocess, "run",
@@ -709,20 +733,66 @@ class NightlyCLIArchiveTests(unittest.TestCase):
             nightly_release.verify_cli_dependencies(self.cli)
         with mock.patch.object(
             nightly_release.subprocess, "run",
-            return_value=subprocess.CompletedProcess([], 0, allowed + "\t@rpath/Unexpected.framework/Unexpected\n", ""),
+            return_value=subprocess.CompletedProcess(
+                [], 0,
+                allowed + "\t@rpath/Unexpected.framework/Unexpected (compatibility version 1.0.0, current version 1.0.0)\n",
+                "",
+            ),
         ), self.assertRaisesRegex(SystemExit, "unexpected"):
             nightly_release.verify_cli_dependencies(self.cli)
         for dependency in [
             "/usr/lib/../local/libevil.dylib",
             "/System/Library/../../tmp/libevil.dylib",
+            "/usr/lib/allowed name/../../../../tmp/libevil.dylib",
         ]:
             with self.subTest(dependency=dependency), mock.patch.object(
                 nightly_release.subprocess, "run",
                 return_value=subprocess.CompletedProcess(
-                    [], 0, allowed + f"\t{dependency} (compatibility version 1.0.0)\n", "",
+                    [], 0,
+                    allowed + f"\t{dependency} (compatibility version 1.0.0, current version 1.0.0)\n",
+                    "",
                 ),
             ), self.assertRaisesRegex(SystemExit, "unexpected"):
                 nightly_release.verify_cli_dependencies(self.cli)
+
+        with mock.patch.object(
+            nightly_release.subprocess, "run",
+            return_value=subprocess.CompletedProcess(
+                [], 0, allowed + "\t/usr/lib/malformed dependency\n", "",
+            ),
+        ), self.assertRaisesRegex(SystemExit, "output is malformed"):
+            nightly_release.verify_cli_dependencies(self.cli)
+
+    def test_deployment_target_verifier_requires_macos_14(self) -> None:
+        valid = (
+            f"{self.cli}:\nLoad command 1\n"
+            "      cmd LC_BUILD_VERSION\n"
+            " platform MACOS\n"
+            "    minos 14.0\n"
+            "      sdk 26.5\n"
+        )
+        for output, accepted in [
+            (valid, True),
+            (valid.replace("minos 14.0", "minos 15.0"), False),
+            (valid.replace("platform MACOS", "platform IOS"), False),
+            (valid.replace("    minos 14.0\n", ""), False),
+            ("malformed", False),
+        ]:
+            with self.subTest(output=output), mock.patch.object(
+                nightly_release.subprocess, "run",
+                return_value=subprocess.CompletedProcess([], 0, output, ""),
+            ):
+                if accepted:
+                    nightly_release.verify_cli_deployment_target(self.cli)
+                else:
+                    with self.assertRaisesRegex(SystemExit, "must target macOS 14.0"):
+                        nightly_release.verify_cli_deployment_target(self.cli)
+
+        for error in [OSError("missing"), subprocess.TimeoutExpired("vtool", 30)]:
+            with self.subTest(error=error), mock.patch.object(
+                nightly_release.subprocess, "run", side_effect=error,
+            ), self.assertRaisesRegex(SystemExit, "Cannot inspect"):
+                nightly_release.verify_cli_deployment_target(self.cli)
 
     def test_version_output_verifier_requires_matching_json(self) -> None:
         def result(version: str, build: str) -> subprocess.CompletedProcess:

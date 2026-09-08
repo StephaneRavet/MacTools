@@ -55,19 +55,20 @@ Both runs should exit 0 and restore the recorded state. If either run fails, res
 
 ## Install on `PATH`
 
-After the absolute-path checks pass, install the signed executable for the current user:
+After the absolute-path checks pass, install the signed executable under a Nightly-specific name so an existing stable or source-built `mactools` command is never replaced:
 
 ```bash
 mkdir -p "$HOME/.local/bin"
-/usr/bin/install -m 0755 "$PWD/mactools-cli/mactools" "$HOME/.local/bin/mactools"
-codesign --verify --strict --verbose=2 "$HOME/.local/bin/mactools"
-"$HOME/.local/bin/mactools" doctor --json
+test ! -e "$HOME/.local/bin/mactools-nightly" || { echo "mactools-nightly already exists; choose another test location" >&2; exit 1; }
+/usr/bin/install -m 0755 "$PWD/mactools-cli/mactools" "$HOME/.local/bin/mactools-nightly"
+codesign --verify --strict --verbose=2 "$HOME/.local/bin/mactools-nightly"
+"$HOME/.local/bin/mactools-nightly" doctor --json
 ```
 
 Add `$HOME/.local/bin` to `PATH` if needed. Remove this installation with:
 
 ```bash
-rm "$HOME/.local/bin/mactools"
+rm "$HOME/.local/bin/mactools-nightly"
 ```
 
 Disable Command-Line Integration before removing MacTools Nightly. The CLI and app may be upgraded independently when their negotiated protocol ranges overlap, but testing the same Nightly release removes avoidable compatibility uncertainty.

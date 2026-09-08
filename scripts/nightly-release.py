@@ -34,7 +34,12 @@ RELEASE_DOWNLOAD_TAG_PATTERN = re.compile(
 )
 MAX_CLI_SIZE_BYTES = 64 * 1024 * 1024
 CLI_ARCHITECTURES = ("arm64",)
-NIGHTLY_RELEASE_INTERFACE_VERSION = 1
+CLI_DEPLOYMENT_TARGET = "14.0"
+NIGHTLY_RELEASE_INTERFACE_VERSION = 2
+DEPENDENCY_LINE_PATTERN = re.compile(
+    r"^[ \t]+(.+) \(compatibility version [^,()]+, current version [^,()]+"
+    r"(?:, (?:weak|reexport|upward))?\)$"
+)
 
 
 def fail(message: str) -> None:
@@ -404,11 +409,14 @@ def verify_cli_dependencies(cli_path: pathlib.Path) -> None:
         )
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         fail("Cannot inspect Nightly CLI dynamic-library dependencies")
-    dependencies = [
-        line.strip().split(" ", 1)[0]
-        for line in result.stdout.splitlines()
-        if line.startswith((" ", "\t")) and line.strip()
-    ]
+    dependencies = []
+    for line in result.stdout.splitlines():
+        if not line.startswith((" ", "\t")) or not line.strip():
+            continue
+        match = DEPENDENCY_LINE_PATTERN.fullmatch(line)
+        if match is None:
+            fail("Nightly CLI dynamic-library dependency output is malformed")
+        dependencies.append(match.group(1))
     unexpected = [
         dependency for dependency in dependencies
         if dependency != posixpath.normpath(dependency)
@@ -416,6 +424,23 @@ def verify_cli_dependencies(cli_path: pathlib.Path) -> None:
     ]
     if unexpected:
         fail(f"Nightly CLI has unexpected dynamic-library dependencies: {unexpected}")
+
+
+def verify_cli_deployment_target(cli_path: pathlib.Path) -> None:
+    try:
+        result = subprocess.run(
+            ["xcrun", "vtool", "-show-build", str(cli_path)],
+            capture_output=True, text=True, check=True, timeout=30,
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        fail("Cannot inspect Nightly CLI deployment target")
+    platforms = re.findall(r"^\s+platform (\S+)$", result.stdout, re.MULTILINE)
+    minimum_versions = re.findall(r"^\s+minos (\S+)$", result.stdout, re.MULTILINE)
+    if platforms != ["MACOS"] or minimum_versions != [CLI_DEPLOYMENT_TARGET]:
+        fail(
+            "Nightly CLI must target macOS "
+            f"{CLI_DEPLOYMENT_TARGET}; found platform={platforms}, minos={minimum_versions}"
+        )
 
 
 def verify_cli_version_output(
@@ -465,6 +490,7 @@ def verify_cli_archive(
     team_identifier: str,
     version: str,
     build_number: str,
+    execute: bool = True,
 ) -> None:
     verify_sha256(archive_path, checksum_path)
     try:
@@ -490,12 +516,14 @@ def verify_cli_archive(
         cli_path.chmod(0o755)
         expected_identifier = f"{bundle_identifier_prefix}.mactools.nightly.cli"
         verify_cli_architectures(cli_path)
+        verify_cli_deployment_target(cli_path)
         verify_cli_slice_metadata(
             cli_path, expected_identifier, version, build_number,
         )
         verify_cli_signature(cli_path, expected_identifier, team_identifier)
         verify_cli_dependencies(cli_path)
-        verify_cli_version_output(cli_path, version, build_number)
+        if execute:
+            verify_cli_version_output(cli_path, version, build_number)
 
 
 def verify_nightly_cli(
@@ -787,6 +815,10 @@ def parser() -> argparse.ArgumentParser:
     verify_cli.add_argument("--team-identifier", required=True)
     verify_cli.add_argument("--version", required=True)
     verify_cli.add_argument("--build-number", required=True)
+    verify_cli.add_argument(
+        "--skip-execution", action="store_true",
+        help="Perform static artifact checks without launching the CLI",
+    )
 
     verify_notarization = subparsers.add_parser("verify-notarization")
     verify_notarization.add_argument("--input", type=pathlib.Path, required=True)
@@ -882,6 +914,7 @@ def main() -> None:
             args.team_identifier,
             args.version,
             args.build_number,
+            execute=not args.skip_execution,
         )
     elif args.command == "verify-notarization":
         verify_notarization_result(args.input)
