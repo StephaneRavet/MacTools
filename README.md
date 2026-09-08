@@ -89,7 +89,7 @@
 
 > **System Status:** Both dashboard entry points keep readings current while open. Detail statistics use all retained readings in the selected range, independent of chart simplification, and pinned readings stay fixed until they leave that range. Expanded metric settings adapt to narrower windows. An optional global shortcut shows the menu-bar overview when available and otherwise opens the dashboard. The updated plugin requires MacTools 1.2.1 or later.
 
-> **Settings sidebar states:** The open page uses native macOS selection, keyboard search candidates use a focus outline until opened, and collapsed sections containing the open page use a separate accent marker.
+> **Settings sidebar states:** The open page uses native macOS selection, keyboard search candidates use a focus outline until opened, and collapsed sections containing the open page use a separate accent marker. The plugin settings sort icon follows its section title color while the menu retains its native appearance.
 >
 > **Pre-install plugin metadata:** The signed plugin catalog can disclose localized product details, requirements, privacy behavior, setup guidance, and static or dynamic action capabilities before a plugin is installed. The same validated metadata is available to Marketplace, search, onboarding, and website clients without loading plugin code or publishing machine-local action entries. Open a catalog detail page with `mactools://app/settings/plugins/marketplace/<plugin-id>`; append matching `provider` and `action` parameters only to highlight a published static action. These links navigate only and never install or run a plugin action.
 

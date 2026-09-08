@@ -2793,18 +2793,21 @@ private struct SettingsSidebar: View {
                 }
                 .disabled(true)
             } label: {
-                HStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                    Image(systemName: "arrow.up.arrow.down")
-                        .font(.caption2.weight(.medium))
-                        .symbolRenderingMode(.monochrome)
-                        .foregroundStyle(.secondary)
-                        .frame(width: 11, height: 11, alignment: .center)
-                }
-                .frame(width: SettingsSidebarAccessoryLayout.width)
+                Color.clear
+                    .frame(width: SettingsSidebarAccessoryLayout.width, height: 11)
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
+            .overlay(alignment: .trailing) {
+                // Keep the visible symbol outside the native menu label's tinting.
+                Image(systemName: "arrow.up.arrow.down")
+                    .font(.caption2.weight(.medium))
+                    .symbolRenderingMode(.monochrome)
+                    .foregroundStyle(sectionHeaderForegroundColor(for: .pluginSettings))
+                    .frame(width: 11, height: 11, alignment: .center)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
             .scaleEffect(0.80, anchor: .trailing)
             .padding(
                 .trailing,
@@ -2850,6 +2853,13 @@ private struct SettingsSidebar: View {
         )
     }
 
+    private func sectionHeaderForegroundColor(for section: SettingsSidebarSection) -> Color {
+        let containsSelection = !sectionIsExpanded(section) && selectedSection == section
+        return containsSelection || highlightedCollapsedSection == section
+            ? .primary
+            : .secondary
+    }
+
     private func disclosureSectionHeader(
         title: String,
         section: SettingsSidebarSection
@@ -2886,11 +2896,7 @@ private struct SettingsSidebar: View {
                     SettingsSidebarShortcutLabel(shortcut: "⌘\(shortcutNumber)")
                 }
             }
-            .foregroundStyle(
-                containsSelection || isKeyboardHighlighted
-                    ? Color.primary
-                    : Color.secondary
-            )
+            .foregroundStyle(sectionHeaderForegroundColor(for: section))
             .contentShape(Rectangle())
             .background {
                 if isKeyboardHighlighted {
