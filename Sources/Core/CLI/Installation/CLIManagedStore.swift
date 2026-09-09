@@ -28,10 +28,14 @@ struct CLIManagedStore: Sendable {
     var commandTarget: String { current.appendingPathComponent("mactools").path }
 
     init(manifest: CLIReleaseManifest, home: URL = FileManager.default.homeDirectoryForCurrentUser) {
-        owner = cliSHA256(Data((manifest.signingIdentifier + "|" + manifest.teamIdentifier + "|"
-            + manifest.sourceRelease.deletingLastPathComponent().absoluteString).utf8))
+        owner = Self.owner(for: manifest)
         root = home.appendingPathComponent("Library/Application Support/MacTools Nightly/CLI/" + owner)
         command = home.appendingPathComponent(".local/bin/mactools-nightly")
+    }
+
+    private static func owner(for manifest: CLIReleaseManifest) -> String {
+        cliSHA256(Data((manifest.signingIdentifier + "|" + manifest.teamIdentifier + "|"
+            + manifest.sourceRelease.deletingLastPathComponent().absoluteString).utf8))
     }
 
     static func entry(_ url: URL) throws -> stat? {
@@ -107,7 +111,8 @@ struct CLIManagedStore: Sendable {
         let executable = directory.appendingPathComponent("mactools")
         try Self.regular(executable)
         try Self.regular(directory.appendingPathComponent("LICENSE"), maximum: 65536)
-        guard receipt.owner == owner, receipt.manifest.channel == "nightly",
+        guard receipt.owner == owner, Self.owner(for: receipt.manifest) == owner,
+              receipt.manifest.channel == "nightly",
               receipt.manifest.directoryName == name, receipt.managedPath == executable.path,
               receipt.linkPath == command.path,
               receipt.executableHash == cliSHA256(try Data(contentsOf: executable)) else { throw CLIInstallError.ownership }
@@ -288,7 +293,8 @@ struct CLIManagedStore: Sendable {
                 let receipt = try JSONDecoder().decode(CLIManagedReceipt.self, from: Data(contentsOf: receiptURL))
                 let executable = stage.appendingPathComponent("mactools")
                 try Self.regular(executable)
-                guard receipt.owner == owner, receipt.linkPath == command.path,
+                guard receipt.owner == owner, Self.owner(for: receipt.manifest) == owner,
+                      receipt.linkPath == command.path,
                       receipt.manifest.channel == "nightly",
                       receipt.managedPath == root.appendingPathComponent(receipt.manifest.directoryName)
                         .appendingPathComponent("mactools").path,

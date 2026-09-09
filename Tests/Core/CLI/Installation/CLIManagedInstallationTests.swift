@@ -246,4 +246,15 @@ final class CLIManagedInstallationTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: store.command), Data("foreign".utf8))
         XCTAssertTrue(try XCTUnwrap(store.readState()).pending)
     }
+
+    func testReceiptCannotSubstituteAnotherSigningTeamWhileKeepingOwnerString() throws {
+        let (store, first) = try prepare(manifest())
+        let receiptURL = URL(fileURLWithPath: first.managedPath).deletingLastPathComponent().appendingPathComponent("receipt.json")
+        var fields = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: receiptURL)) as? [String: Any])
+        var metadata = try XCTUnwrap(fields["manifest"] as? [String: Any])
+        metadata["teamIdentifier"] = "OTHERTEAM0"
+        fields["manifest"] = metadata
+        try JSONSerialization.data(withJSONObject: fields).write(to: receiptURL)
+        XCTAssertThrowsError(try store.receipt(first.manifest.directoryName))
+    }
 }
