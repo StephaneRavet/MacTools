@@ -175,6 +175,18 @@ Release 工作流会校验 `v0.9.3` 与 `Configs/AppVersion.xcconfig` 的 `MARKE
 
 也可以在 GitHub Actions 页面手动运行 `Release`，输入已存在的 tag，例如 `v0.9.3`；该 tag 指向的提交里仍必须已经更新 `Configs/AppVersion.xcconfig`。
 
+### App release recovery
+
+The app signing step signs the embedded `MacToolsCLIBroker` executable before signing the outer app. The broker is a plain executable and is not covered by the framework, bundle, or dynamic-library signing loops. The local release script follows the same order.
+
+If an app release fails because of an inline workflow bug and its tagged source is otherwise correct, push the workflow fix to `main`, then start a new `Actions` -> `Release` -> `Run workflow`. Select `main` as the workflow branch and enter the existing release tag. The workflow definition comes from `main`, while checkout still uses the requested tag for the app source, version, catalog, and release notes. For example:
+
+```bash
+gh workflow run release.yml --ref main -f tag=v1.3.0
+```
+
+The old run's `Re-run jobs` action reuses its original workflow revision and will not pick up the fix. Keep the existing tag and plugin release unchanged for this workflow-only recovery. Changes to app source or scripts loaded from the checkout require an updated release source; running the workflow from `main` does not replace those tagged files. A separate failed `Build` check is superseded by the new check triggered when the fix is pushed to `main`.
+
 ## 插件发布方式
 
 推荐用 GitHub Actions 的 `Prepare Release` 发布插件批次：
