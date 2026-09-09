@@ -159,6 +159,11 @@ enum CLIInstaller {
             guard try store.receipt(name).manifest.isCompatible else { throw CLIInstallError.incompatible }
         } else { name = manifest.directoryName }
 
+        // Prune only unreferenced versions before any activation. Keep both journal references
+        // and a matching retained candidate; a successful update leaves at most three versions
+        // until the next managed operation. Cleanup failure never misreports an activated update.
+        try store.prune(keeping: state ?? CLIManagedState(owner: store.owner, active: nil, previous: nil,
+            automaticUpdates: automaticUpdates, pending: false), additionallyKeeping: name)
         let destination = store.root.appendingPathComponent(name)
         if try CLIManagedStore.entry(destination) == nil {
             guard !rollback else { throw CLIInstallError.ownership }
@@ -213,7 +218,6 @@ enum CLIInstaller {
             try dependencies.execute(executable, release, false)
             if doctor { try dependencies.execute(executable, manifest, true) }
         }
-        try store.prune(keeping: active)
         return (try store.receipt(name), active)
     }
 }

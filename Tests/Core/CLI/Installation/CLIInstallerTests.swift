@@ -92,4 +92,30 @@ final class CLIInstallerTests: XCTestCase, @unchecked Sendable {
         } catch { XCTAssertEqual(error as? CLIInstallError, .collision) }
         XCTAssertEqual(try Data(contentsOf: store.command), Data("manual".utf8))
     }
+
+    func testRetentionFailureCannotReportFailureAfterChangingActiveCLI() async throws {
+        let first = try await install("123.1", dependencies: fixtureDependencies)
+        let store = CLIManagedStore(manifest: manifest("123.1"), home: home)
+        let orphan = store.root.appendingPathComponent(manifest("122.1").directoryName)
+        try FileManager.default.createDirectory(at: orphan, withIntermediateDirectories: false)
+        let foreign = orphan.appendingPathComponent("user-file")
+        try Data("preserve".utf8).write(to: foreign)
+        do {
+            _ = try await install("124.1", dependencies: fixtureDependencies)
+            XCTFail("Expected retention ownership failure")
+        } catch { XCTAssertEqual(error as? CLIInstallError, .ownership) }
+        XCTAssertEqual(try store.readState()?.active, first.manifest.directoryName)
+        XCTAssertEqual(try Data(contentsOf: foreign), Data("preserve".utf8))
+    }
+
+    func testRepeatedUpdatesBoundRetentionWithoutDeletingJournalReferences() async throws {
+        for build in ["120.1", "121.1", "122.1", "123.1", "124.1"] {
+            _ = try await install(build, dependencies: fixtureDependencies)
+        }
+        let store = CLIManagedStore(manifest: manifest("124.1"), home: home)
+        let versions = try FileManager.default.contentsOfDirectory(atPath: store.root.path).filter { $0.hasPrefix("1.3.0-") }
+        XCTAssertEqual(versions.count, 3)
+        XCTAssertEqual(try store.readState()?.active, manifest("124.1").directoryName)
+        XCTAssertEqual(try store.readState()?.previous, manifest("123.1").directoryName)
+    }
 }

@@ -262,9 +262,9 @@ struct CLIManagedStore: Sendable {
         guard rmdir(directory.path) == 0 else { throw CLIInstallError.filesystem }
     }
 
-    func prune(keeping state: CLIManagedState) throws {
+    func prune(keeping state: CLIManagedState, additionallyKeeping candidate: String? = nil) throws {
         for name in try FileManager.default.contentsOfDirectory(atPath: root.path) {
-            guard name != state.active, name != state.previous,
+            guard name != state.active, name != state.previous, name != candidate,
                   name.range(of: "^[0-9].*-[a-f0-9]{12}$", options: .regularExpression) != nil else { continue }
             try deleteVersion(name)
         }
