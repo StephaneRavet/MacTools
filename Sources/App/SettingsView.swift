@@ -869,7 +869,7 @@ private struct CLISettingsRow: View {
                 .controlSize(.small)
             }
             Toggle(
-                AppL10n.settings("commandLine.enable", defaultValue: "启用"),
+                AppL10n.settings("commandLine.title", defaultValue: "MacTools 命令行"),
                 isOn: Binding(
                     get: { service.isRegistered },
                     set: { enabled in
@@ -882,6 +882,7 @@ private struct CLISettingsRow: View {
                 )
             )
             .toggleStyle(.switch)
+            .labelsHidden()
             .controlSize(.small)
             .fixedSize()
         }
