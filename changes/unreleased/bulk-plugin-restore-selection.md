@@ -4,4 +4,4 @@ type: added
 area: Preferences
 ---
 
-Fresh-setup preference restore now preselects missing plugins, preserves manual choices, shows determinate progress, and distinguishes plugin settings awaiting restart from settings that failed to restore.
+Preferences restore preselects available missing plugins, preserves choices, and adds bulk selection and installation progress. It flags plugins needing a restart and another import to restore settings.
