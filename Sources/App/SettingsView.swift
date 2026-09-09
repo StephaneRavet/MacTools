@@ -653,6 +653,10 @@ struct GeneralSettingsView: View {
                 Section {
                     CLISettingsRow(service: cliService)
                         .settingsGroupedFormRowWidth(widths.sectionLayout)
+                    if CLIInstallController.isSupportedChannel {
+                        CLIInstallSettingsView()
+                            .settingsGroupedFormRowWidth(widths.sectionLayout)
+                    }
                 } header: {
                     SettingsGroupedFormSectionHeader(
                         title: AppL10n.settings("general.section.commandLine", defaultValue: "命令行"),
