@@ -257,4 +257,18 @@ final class CLIManagedInstallationTests: XCTestCase {
         try JSONSerialization.data(withJSONObject: fields).write(to: receiptURL)
         XCTAssertThrowsError(try store.receipt(first.manifest.directoryName))
     }
+
+    func testFailedUpdatePreservesThePreviousSuccessfulRollbackTarget() throws {
+        let (store, oldest) = try prepare(manifest(build: "122.1"))
+        _ = try store.activate(oldest.manifest.directoryName, automaticUpdates: true) { _, _ in }
+        let (_, current) = try prepare(manifest())
+        _ = try store.activate(current.manifest.directoryName, automaticUpdates: true) { _, _ in }
+        let (_, failed) = try prepare(manifest(build: "124.1"))
+        XCTAssertThrowsError(try store.activate(failed.manifest.directoryName, automaticUpdates: true) { _, _ in
+            throw CLIInstallError.validation
+        })
+        XCTAssertEqual(try store.readState()?.active, current.manifest.directoryName)
+        XCTAssertEqual(try store.readState()?.previous, oldest.manifest.directoryName)
+        XCTAssertNil(try store.readState()?.recoveryPrevious)
+    }
 }

@@ -15,6 +15,7 @@ struct CLIManagedState: Codable, Sendable {
     var previous: String?
     var automaticUpdates: Bool
     var pending: Bool
+    var recoveryPrevious: String? = nil
 }
 
 /// All writes are per-user and serialized by a no-follow flock. The command symlink is created
@@ -84,7 +85,7 @@ struct CLIManagedStore: Sendable {
         try Self.regular(stateURL, maximum: 16384)
         let state = try JSONDecoder().decode(CLIManagedState.self, from: Data(contentsOf: stateURL))
         guard state.owner == owner else { throw CLIInstallError.ownership }
-        for version in [state.active, state.previous].compactMap({ $0 }) {
+        for version in [state.active, state.previous, state.recoveryPrevious].compactMap({ $0 }) {
             _ = try receipt(version)
         }
         return state
@@ -190,9 +191,9 @@ struct CLIManagedStore: Sendable {
             }
         }
         try Self.synchronizeDirectory(command.deletingLastPathComponent())
-        let failed = state.active
         state.active = state.previous
-        state.previous = failed
+        state.previous = state.recoveryPrevious
+        state.recoveryPrevious = nil
         state.pending = false
         try writeState(state)
         return state
@@ -213,7 +214,8 @@ struct CLIManagedStore: Sendable {
             return state
         }
         var state = CLIManagedState(owner: owner, active: name, previous: old?.active,
-                                    automaticUpdates: automaticUpdates, pending: true)
+                                    automaticUpdates: automaticUpdates, pending: true,
+                                    recoveryPrevious: old?.previous)
         try writeState(state)
         do {
             try switchCurrent(from: old?.active, to: name)
@@ -224,6 +226,7 @@ struct CLIManagedStore: Sendable {
             let installed = try receipt(name)
             try validate(command, installed.manifest)
             state.pending = false
+            state.recoveryPrevious = nil
             try writeState(state)
             return state
         } catch {
@@ -241,7 +244,8 @@ struct CLIManagedStore: Sendable {
         // Validate every deletion before touching the public link.
         for name in names { _ = try receipt(name) }
         try writeState(CLIManagedState(owner: owner, active: nil, previous: state.active,
-                                      automaticUpdates: state.automaticUpdates, pending: true))
+                                      automaticUpdates: state.automaticUpdates, pending: true,
+                                      recoveryPrevious: state.previous))
         if state.active != nil {
             guard unlink(command.path) == 0 else { throw CLIInstallError.filesystem }
             try Self.synchronizeDirectory(command.deletingLastPathComponent())
