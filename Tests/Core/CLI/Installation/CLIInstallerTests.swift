@@ -118,4 +118,23 @@ final class CLIInstallerTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(try store.readState()?.active, manifest("124.1").directoryName)
         XCTAssertEqual(try store.readState()?.previous, manifest("123.1").directoryName)
     }
+
+    func testUpdateCompletesAfterInterruptedRetentionCleanup() async throws {
+        for build in ["123.1", "124.1", "125.1"] {
+            _ = try await install(build, dependencies: fixtureDependencies)
+        }
+        let store = CLIManagedStore(manifest: manifest("125.1"), home: home)
+        let retired = try store.beginVersionDeletion(manifest("123.1").directoryName)
+        XCTAssertEqual(unlink(retired.appendingPathComponent("mactools").path), 0)
+        let inode = try CLIManagedStore.entry(store.command)?.st_ino
+
+        let updated = try await install("126.1", dependencies: fixtureDependencies)
+        XCTAssertEqual(updated.manifest.cliBuild, "126.1")
+        XCTAssertNil(try CLIManagedStore.entry(retired))
+        XCTAssertEqual(try CLIManagedStore.entry(store.command)?.st_ino, inode)
+        XCTAssertEqual(try store.readState()?.previous, manifest("125.1").directoryName)
+        try store.remove()
+        let reinstalled = try await install("126.1", dependencies: fixtureDependencies)
+        XCTAssertEqual(reinstalled, updated)
+    }
 }

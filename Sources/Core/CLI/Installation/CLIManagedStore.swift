@@ -99,24 +99,36 @@ struct CLIManagedStore: Sendable {
     }
 
     func receipt(_ name: String) throws -> CLIManagedReceipt {
+        try receipt(name, directory: root.appendingPathComponent(name), deleting: false)
+    }
+
+    private func validateVersionName(_ name: String) throws {
         guard name.range(of: "^[0-9]+(\\.[0-9]+){0,3}-[0-9]+(\\.[0-9]+){0,3}-[a-f0-9]{12}$",
                          options: .regularExpression) != nil else { throw CLIInstallError.ownership }
-        let directory = root.appendingPathComponent(name)
+    }
+
+    private func receipt(_ name: String, directory: URL, deleting: Bool) throws -> CLIManagedReceipt {
+        try validateVersionName(name)
         try Self.directory(directory, create: false)
-        guard Set(try FileManager.default.contentsOfDirectory(atPath: directory.path)) == ["mactools", "LICENSE", "receipt.json"] else {
+        let files = Set(try FileManager.default.contentsOfDirectory(atPath: directory.path))
+        let expected: Set<String> = ["mactools", "LICENSE", "receipt.json"]
+        guard deleting ? files.isSubset(of: expected) : files == expected else {
             throw CLIInstallError.ownership
         }
         let receiptURL = directory.appendingPathComponent("receipt.json")
         try Self.regular(receiptURL, maximum: 16384)
         let receipt = try JSONDecoder().decode(CLIManagedReceipt.self, from: Data(contentsOf: receiptURL))
         let executable = directory.appendingPathComponent("mactools")
-        try Self.regular(executable)
-        try Self.regular(directory.appendingPathComponent("LICENSE"), maximum: 65536)
+        if files.contains("mactools") { try Self.regular(executable) }
+        if files.contains("LICENSE") { try Self.regular(directory.appendingPathComponent("LICENSE"), maximum: 65536) }
         guard receipt.owner == owner, Self.owner(for: receipt.manifest) == owner,
               receipt.manifest.channel == "nightly",
-              receipt.manifest.directoryName == name, receipt.managedPath == executable.path,
-              receipt.linkPath == command.path,
-              receipt.executableHash == cliSHA256(try Data(contentsOf: executable)) else { throw CLIInstallError.ownership }
+              receipt.manifest.directoryName == name,
+              receipt.managedPath == root.appendingPathComponent(name).appendingPathComponent("mactools").path,
+              receipt.linkPath == command.path else { throw CLIInstallError.ownership }
+        if files.contains("mactools"), receipt.executableHash != cliSHA256(try Data(contentsOf: executable)) {
+            throw CLIInstallError.ownership
+        }
         return receipt
     }
 
@@ -165,6 +177,7 @@ struct CLIManagedStore: Sendable {
     /// A pending activation is never trusted on a later launch. Restore the previous receipt,
     /// including the crash window between journaling and switching the private pointer.
     func recover() throws -> CLIManagedState? {
+        try cleanDeletedVersions()
         guard var state = try readState() else { return nil }
         guard state.pending else {
             try checkCurrent(expected: state.active)
@@ -257,16 +270,63 @@ struct CLIManagedStore: Sendable {
     }
 
     func deleteVersion(_ name: String) throws {
+        let directory = try beginVersionDeletion(name)
+        try finishVersionDeletion(name, directory: directory)
+    }
+
+    /// The atomic rename is the deletion journal. Live version directories always require a
+    /// complete receipt; only retired directories may contain a partially deleted version.
+    func beginVersionDeletion(_ name: String) throws -> URL {
         _ = try receipt(name)
-        let directory = root.appendingPathComponent(name)
+        return try retireVersion(name, directory: root.appendingPathComponent(name))
+    }
+
+    private func requireUnreferencedVersion(_ name: String) throws {
+        try validateVersionName(name)
+        let state = try readState()
+        guard ![state?.active, state?.previous, state?.recoveryPrevious].contains(name) else {
+            throw CLIInstallError.ownership
+        }
+    }
+
+    private func retireVersion(_ name: String, directory: URL) throws -> URL {
+        try requireUnreferencedVersion(name)
+        let retired = root.appendingPathComponent(".delete-" + name)
+        guard renameatx_np(AT_FDCWD, directory.path, AT_FDCWD, retired.path, UInt32(RENAME_EXCL)) == 0 else {
+            throw CLIInstallError.filesystem
+        }
+        try syncRoot()
+        return retired
+    }
+
+    private func cleanDeletedVersions() throws {
+        for name in try FileManager.default.contentsOfDirectory(atPath: root.path) where name.hasPrefix(".delete-") {
+            try finishVersionDeletion(String(name.dropFirst(".delete-".count)), directory: root.appendingPathComponent(name))
+        }
+    }
+
+    private func finishVersionDeletion(_ name: String, directory: URL) throws {
+        try requireUnreferencedVersion(name)
+        try Self.directory(directory, create: false)
+        let files = Set(try FileManager.default.contentsOfDirectory(atPath: directory.path))
+        if !files.isEmpty { _ = try receipt(name, directory: directory, deleting: true) }
         // Never use recursive deletion: unrecognized children and links are preserved.
-        for file in ["mactools", "LICENSE", "receipt.json"] {
+        for file in ["mactools", "LICENSE"] where files.contains(file) {
             guard unlink(directory.appendingPathComponent(file).path) == 0 else { throw CLIInstallError.filesystem }
         }
+        // Persist removal of payloads before deleting their ownership evidence. After that,
+        // an empty retired directory is safe to remove even if the process was interrupted.
+        try Self.synchronizeDirectory(directory)
+        if files.contains("receipt.json"), unlink(directory.appendingPathComponent("receipt.json").path) != 0 {
+            throw CLIInstallError.filesystem
+        }
+        try Self.synchronizeDirectory(directory)
         guard rmdir(directory.path) == 0 else { throw CLIInstallError.filesystem }
+        try syncRoot()
     }
 
     func prune(keeping state: CLIManagedState, additionallyKeeping candidate: String? = nil) throws {
+        try cleanDeletedVersions()
         for name in try FileManager.default.contentsOfDirectory(atPath: root.path) {
             guard name != state.active, name != state.previous, name != candidate,
                   name.range(of: "^[0-9].*-[a-f0-9]{12}$", options: .regularExpression) != nil else { continue }
@@ -275,6 +335,7 @@ struct CLIManagedStore: Sendable {
     }
 
     func cleanStaging() throws {
+        try cleanDeletedVersions()
         for name in try FileManager.default.contentsOfDirectory(atPath: root.path) where name.hasPrefix(".stage-") {
             let stage = root.appendingPathComponent(name)
             try Self.directory(stage, create: false)
@@ -295,16 +356,12 @@ struct CLIManagedStore: Sendable {
                 let receiptURL = stage.appendingPathComponent("receipt.json")
                 try Self.regular(receiptURL, maximum: 16384)
                 let receipt = try JSONDecoder().decode(CLIManagedReceipt.self, from: Data(contentsOf: receiptURL))
-                let executable = stage.appendingPathComponent("mactools")
-                try Self.regular(executable)
-                guard receipt.owner == owner, Self.owner(for: receipt.manifest) == owner,
-                      receipt.linkPath == command.path,
-                      receipt.manifest.channel == "nightly",
-                      receipt.managedPath == root.appendingPathComponent(receipt.manifest.directoryName)
-                        .appendingPathComponent("mactools").path,
-                      receipt.executableHash == cliSHA256(try Data(contentsOf: executable)) else {
-                    throw CLIInstallError.ownership
-                }
+                // Preserve the completed receipt across interruptions in cleanup as well as
+                // interruptions in installation's final move.
+                _ = try self.receipt(receipt.manifest.directoryName, directory: stage, deleting: false)
+                let retired = try retireVersion(receipt.manifest.directoryName, directory: stage)
+                try finishVersionDeletion(receipt.manifest.directoryName, directory: retired)
+                continue
             }
             guard Set(files).isSubset(of: ["owner", "archive.zip", "mactools", "LICENSE", "receipt.json"]) else {
                 throw CLIInstallError.ownership
@@ -313,6 +370,7 @@ struct CLIManagedStore: Sendable {
             for file in files where file != "owner" {
                 guard unlink(stage.appendingPathComponent(file).path) == 0 else { throw CLIInstallError.filesystem }
             }
+            try Self.synchronizeDirectory(stage)
             if files.contains("owner"), unlink(marker.path) != 0 { throw CLIInstallError.filesystem }
             guard rmdir(stage.path) == 0 else { throw CLIInstallError.filesystem }
         }

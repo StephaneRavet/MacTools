@@ -201,6 +201,106 @@ final class CLIManagedInstallationTests: XCTestCase {
         XCTAssertThrowsError(try store.lock(create: false))
     }
 
+    private func interruptDeletion(_ directory: URL, after removed: Int) throws {
+        for file in ["mactools", "LICENSE", "receipt.json"].prefix(removed) {
+            XCTAssertEqual(unlink(directory.appendingPathComponent(file).path), 0)
+        }
+        if removed == 4 { XCTAssertEqual(rmdir(directory.path), 0) }
+    }
+
+    func testInterruptedPruningResumesAfterEveryDeletionStepAndPreservesRollback() throws {
+        let (store, previous) = try prepare(manifest(build: "124.1"))
+        _ = try store.activate(previous.manifest.directoryName, automaticUpdates: true) { _, _ in }
+        let (_, active) = try prepare(manifest(build: "125.1"))
+        _ = try store.activate(active.manifest.directoryName, automaticUpdates: true) { _, _ in }
+        for removed in 0...4 {
+            let (_, old) = try prepare(manifest(build: "\(100 + removed).1"))
+            let directory = try store.beginVersionDeletion(old.manifest.directoryName)
+            XCTAssertNil(try CLIManagedStore.entry(URL(fileURLWithPath: old.managedPath)))
+            try interruptDeletion(directory, after: removed)
+
+            let relaunched = CLIManagedStore(manifest: active.manifest, home: home)
+            let state = try XCTUnwrap(relaunched.recover())
+            try relaunched.prune(keeping: state)
+            XCTAssertNil(try CLIManagedStore.entry(directory))
+            XCTAssertEqual(state.active, active.manifest.directoryName)
+            XCTAssertEqual(state.previous, previous.manifest.directoryName)
+            XCTAssertEqual(try Data(contentsOf: store.command), Data("fixture-125.1".utf8))
+        }
+        let (_, next) = try prepare(manifest(build: "126.1"))
+        _ = try store.activate(next.manifest.directoryName, automaticUpdates: true) { _, _ in }
+        XCTAssertEqual(try Data(contentsOf: store.command), Data("fixture-126.1".utf8))
+    }
+
+    func testInterruptedRemovalResumesAfterEveryDeletionStepAndAllowsReinstall() throws {
+        for removed in 0...4 {
+            let (store, first) = try prepare(manifest())
+            _ = try store.activate(first.manifest.directoryName, automaticUpdates: true) { _, _ in }
+            // Removal has committed its empty state before retiring the version directory.
+            XCTAssertEqual(unlink(store.command.path), 0)
+            XCTAssertEqual(unlink(store.root.appendingPathComponent("current").path), 0)
+            try store.writeState(CLIManagedState(owner: store.owner, active: nil, previous: nil,
+                automaticUpdates: false, pending: false))
+            let directory = try store.beginVersionDeletion(first.manifest.directoryName)
+            try interruptDeletion(directory, after: removed)
+
+            let relaunched = CLIManagedStore(manifest: first.manifest, home: home)
+            try relaunched.remove()
+            XCTAssertNil(try CLIManagedStore.entry(directory))
+            XCTAssertNil(try CLIManagedStore.entry(store.command))
+            XCTAssertNil(try relaunched.readState()?.active)
+            let (_, next) = try prepare(manifest(build: "124.1"))
+            _ = try relaunched.activate(next.manifest.directoryName, automaticUpdates: true) { _, _ in }
+            XCTAssertEqual(try Data(contentsOf: store.command), Data("fixture-124.1".utf8))
+            try relaunched.remove()
+        }
+    }
+
+    func testDeletionCannotRetireActiveOrRollbackVersions() throws {
+        let (store, first) = try prepare(manifest())
+        _ = try store.activate(first.manifest.directoryName, automaticUpdates: true) { _, _ in }
+        let (_, next) = try prepare(manifest(build: "124.1"))
+        _ = try store.activate(next.manifest.directoryName, automaticUpdates: true) { _, _ in }
+        for receipt in [first, next] {
+            XCTAssertThrowsError(try store.beginVersionDeletion(receipt.manifest.directoryName))
+            XCTAssertEqual(try store.receipt(receipt.manifest.directoryName), receipt)
+        }
+    }
+
+    func testDeletionRecoveryRejectsForeignFilesLinksAndTampering() throws {
+        for kind in ["extra", "symlink", "hardlink", "executable", "receipt", "missing-receipt"] {
+            let (store, first) = try prepare(manifest())
+            let directory = try store.beginVersionDeletion(first.manifest.directoryName)
+            let executable = directory.appendingPathComponent("mactools")
+            let receiptURL = directory.appendingPathComponent("receipt.json")
+            switch kind {
+            case "extra": try Data("preserve".utf8).write(to: directory.appendingPathComponent("user-file"))
+            case "symlink":
+                XCTAssertEqual(unlink(executable.path), 0)
+                XCTAssertEqual(symlink("/bin/sh", executable.path), 0)
+            case "hardlink": XCTAssertEqual(link(executable.path, home.appendingPathComponent("linked-cli").path), 0)
+            case "executable": try Data("modified".utf8).write(to: executable)
+            case "receipt":
+                let foreign = CLIManagedReceipt(owner: "foreign", manifest: first.manifest,
+                    executableHash: first.executableHash, managedPath: first.managedPath, linkPath: first.linkPath)
+                try JSONEncoder().encode(foreign).write(to: receiptURL)
+            default: XCTAssertEqual(unlink(receiptURL.path), 0)
+            }
+            let before = try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted()
+            XCTAssertThrowsError(try store.recover(), kind)
+            XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted(), before, kind)
+            try FileManager.default.removeItem(at: directory)
+        }
+    }
+
+    func testPartialLiveVersionIsNotAdoptedAsInterruptedDeletion() throws {
+        let (store, first) = try prepare(manifest())
+        XCTAssertEqual(unlink(first.managedPath), 0)
+        XCTAssertThrowsError(try store.deleteVersion(first.manifest.directoryName))
+        XCTAssertNotNil(try CLIManagedStore.entry(URL(fileURLWithPath: first.managedPath)
+            .deletingLastPathComponent().appendingPathComponent("receipt.json")))
+    }
+
     func testInterruptedRemovalRestoresPreviousVersionAndMissingCommand() throws {
         let (store, first) = try prepare(manifest())
         _ = try store.activate(first.manifest.directoryName, automaticUpdates: true) { _, _ in }
