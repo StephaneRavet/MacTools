@@ -12,6 +12,13 @@ enum CLIInstallLaunchPolicy {
     }
 }
 
+enum CLIInstallOperation: Equatable, Sendable {
+    case refresh(updateOnLaunch: Bool)
+    case install(automaticUpdates: Bool, enableIntegration: Bool, rollback: Bool)
+    case setAutomaticUpdates(Bool)
+    case remove
+}
+
 @MainActor
 final class CLIInstallController: ObservableObject {
     static let shared = CLIInstallController()
@@ -21,7 +28,70 @@ final class CLIInstallController: ObservableObject {
     @Published private(set) var automaticUpdates = true
     @Published private(set) var busy = false
     @Published private(set) var canRollback = false
+    private(set) var failedOperation: CLIInstallOperation?
+    private(set) var lastError: Error?
     private var didStart = false
+    private let home: URL
+    private let authenticate: @Sendable () throws -> CLIReleaseManifest
+    private let dependencies: CLIInstaller.Dependencies
+    private let prepareIntegration: (Bool) -> Bool
+
+    init(home: URL = FileManager.default.homeDirectoryForCurrentUser,
+         authenticate: @escaping @Sendable () throws -> CLIReleaseManifest = { try CLIReleaseManifest.authenticated() },
+         dependencies: CLIInstaller.Dependencies = .live,
+         prepareIntegration: @escaping (Bool) -> Bool = { enable in
+             if enable { CLIBrokerServiceController.shared.ensureRegistered() }
+             return CLIBrokerServiceController.shared.status == .enabled
+         }) {
+        self.home = home
+        self.authenticate = authenticate
+        self.dependencies = dependencies
+        self.prepareIntegration = prepareIntegration
+    }
+
+    func retry() {
+        guard !busy, let operation = failedOperation else { return }
+        switch operation {
+        case let .refresh(updateOnLaunch): refresh(updateOnLaunch: updateOnLaunch)
+        case let .install(automaticUpdates, enableIntegration, rollback):
+            install(automaticUpdates: automaticUpdates, enableIntegration: enableIntegration, rollback: rollback)
+        case let .setAutomaticUpdates(enabled): setAutomaticUpdates(enabled)
+        case .remove: remove()
+        }
+    }
+
+    private func begin() {
+        busy = true
+        failedOperation = nil
+        lastError = nil
+    }
+
+    private nonisolated static func snapshot(_ store: CLIManagedStore) throws -> (CLIManagedState?, CLIManagedReceipt?) {
+        guard try CLIManagedStore.entry(store.root) != nil else { return (nil, nil) }
+        let lock = try store.lock(create: false)
+        defer { close(lock) }
+        let state = try store.recover()
+        return (state, try state?.active.map { try store.receipt($0) })
+    }
+
+    private func apply(_ snapshot: (CLIManagedState?, CLIManagedReceipt?)) {
+        receipt = snapshot.1
+        automaticUpdates = snapshot.0?.automaticUpdates ?? true
+        canRollback = snapshot.0?.previous != nil && receipt != nil
+    }
+
+    private func failed(_ error: Error, operation: CLIInstallOperation) async {
+        // A removal may already have committed an empty state before cleanup failed.
+        // Never keep a stale receipt or infer the retry operation from installed state.
+        if let store {
+            let snapshot = try? await Task.detached(priority: .utility) { try Self.snapshot(store) }.value
+            apply(snapshot ?? (nil, nil))
+        }
+        lastError = error
+        failedOperation = operation
+        phase = .failed(error.localizedDescription)
+        busy = false
+    }
 
     static var isSupportedChannel: Bool {
         #if arch(arm64)
@@ -31,7 +101,7 @@ final class CLIInstallController: ObservableObject {
         #endif
     }
 
-    var store: CLIManagedStore? { manifest.map { CLIManagedStore(manifest: $0) } }
+    var store: CLIManagedStore? { manifest.map { CLIManagedStore(manifest: $0, home: home) } }
 
     func start() {
         guard Self.isSupportedChannel, !didStart else { return }
@@ -41,46 +111,43 @@ final class CLIInstallController: ObservableObject {
 
     func refresh(updateOnLaunch: Bool = false) {
         guard !busy else { return }
-        busy = true
+        begin()
+        let authenticate = authenticate
+        let home = home
         Task {
             do {
                 let snapshot = try await Task.detached(priority: .utility) {
-                    let manifest = try CLIReleaseManifest.authenticated()
-                    let store = CLIManagedStore(manifest: manifest)
-                    guard try CLIManagedStore.entry(store.root) != nil else {
-                        return (manifest, nil as CLIManagedState?, nil as CLIManagedReceipt?)
-                    }
-                    let lock = try store.lock(create: false)
-                    defer { close(lock) }
-                    let state = try store.recover()
-                    let receipt = try state?.active.map { try store.receipt($0) }
-                    return (manifest, state, receipt)
+                    let manifest = try authenticate()
+                    let state = try Self.snapshot(CLIManagedStore(manifest: manifest, home: home))
+                    return (manifest, state)
                 }.value
                 manifest = snapshot.0
-                receipt = snapshot.2
-                automaticUpdates = snapshot.1?.automaticUpdates ?? true
-                canRollback = snapshot.1?.previous != nil && receipt != nil
+                apply(snapshot.1)
                 if let receipt {
                     phase = receipt.manifest == manifest ? .installed : .updateAvailable
-                    if !receipt.manifest.isCompatible { phase = .failed(CLIInstallError.incompatible.localizedDescription) }
+                    if !receipt.manifest.isCompatible {
+                        lastError = CLIInstallError.incompatible
+                        failedOperation = .install(automaticUpdates: automaticUpdates, enableIntegration: false, rollback: false)
+                        phase = .failed(CLIInstallError.incompatible.localizedDescription)
+                    }
                 } else { phase = .notInstalled }
                 busy = false
                 if updateOnLaunch, CLIInstallLaunchPolicy.shouldUpdate(receipt: receipt, target: snapshot.0, optedIn: automaticUpdates) {
                     install(automaticUpdates: true)
                 }
             } catch {
-                phase = .failed(error.localizedDescription)
-                busy = false
+                await failed(error, operation: .refresh(updateOnLaunch: updateOnLaunch))
             }
         }
     }
 
     func install(automaticUpdates: Bool, enableIntegration: Bool = false, rollback: Bool = false) {
         guard !busy, let manifest else { return }
-        busy = true
+        begin()
         phase = .downloading
-        if enableIntegration { CLIBrokerServiceController.shared.ensureRegistered() }
-        let doctor = CLIBrokerServiceController.shared.status == .enabled
+        let doctor = prepareIntegration(enableIntegration)
+        let home = home
+        let dependencies = dependencies
         let progress: @Sendable (CLIInstallPhase) async -> Void = { [weak self] phase in
             await MainActor.run { self?.phase = phase }
         }
@@ -88,32 +155,34 @@ final class CLIInstallController: ObservableObject {
             do {
                 let result = try await Task.detached(priority: .utility) {
                     try await CLIInstaller.install(manifest: manifest, automaticUpdates: automaticUpdates,
-                                                   doctor: doctor, rollback: rollback, progress: progress)
+                                                   doctor: doctor, rollback: rollback, home: home,
+                                                   dependencies: dependencies, progress: progress)
                 }.value
                 receipt = result.0
                 canRollback = result.1.previous != nil
                 self.automaticUpdates = result.1.automaticUpdates
                 phase = receipt?.manifest == manifest ? .installed : .updateAvailable
             } catch {
-                phase = .failed(error.localizedDescription)
+                await failed(error, operation: .install(automaticUpdates: automaticUpdates,
+                    enableIntegration: enableIntegration, rollback: rollback))
             }
             busy = false
         }
     }
 
     func setAutomaticUpdates(_ enabled: Bool) {
-        mutate { store in
+        mutate(.setAutomaticUpdates(enabled)) { store in
             guard var state = try store.recover(), state.active != nil else { throw CLIInstallError.ownership }
             state.automaticUpdates = enabled
             try store.writeState(state)
         }
     }
 
-    func remove() { mutate { try $0.remove() } }
+    func remove() { mutate(.remove) { try $0.remove() } }
 
-    private func mutate(_ action: @escaping @Sendable (CLIManagedStore) throws -> Void) {
+    private func mutate(_ operation: CLIInstallOperation, _ action: @escaping @Sendable (CLIManagedStore) throws -> Void) {
         guard !busy, let store else { return }
-        busy = true
+        begin()
         Task {
             do {
                 try await Task.detached(priority: .utility) {
@@ -124,8 +193,7 @@ final class CLIInstallController: ObservableObject {
                 busy = false
                 refresh()
             } catch {
-                phase = .failed(error.localizedDescription)
-                busy = false
+                await failed(error, operation: operation)
             }
         }
     }

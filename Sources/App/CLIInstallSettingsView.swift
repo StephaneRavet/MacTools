@@ -16,24 +16,24 @@ struct CLIInstallSettingsView: View {
                 Text("\(receipt.manifest.cliVersion) (\(receipt.manifest.cliBuild))\n\(receipt.linkPath)")
                     .font(PluginSettingsTheme.Typography.rowDescription)
                     .foregroundStyle(.secondary).textSelection(.enabled)
-                Toggle("随 MacTools 更新 CLI", isOn: Binding(
+                Toggle(CLIInstallCopy.keepUpdated.text, isOn: Binding(
                     get: { installer.automaticUpdates }, set: { installer.setAutomaticUpdates($0) }
                 )).toggleStyle(.switch)
                 HStack {
-                    Button("更新") { installer.install(automaticUpdates: installer.automaticUpdates) }
+                    Button(CLIInstallCopy.update.text) { installer.install(automaticUpdates: installer.automaticUpdates) }
                     if installer.canRollback {
-                        Button("回退上一版本") {
+                        Button(CLIInstallCopy.rollback.text) {
                             installer.install(automaticUpdates: installer.automaticUpdates, rollback: true)
                         }
                     }
-                    Button("移除") { installer.remove() }
-                    Button("在访达中显示") {
+                    Button(CLIInstallCopy.remove.text) { installer.remove() }
+                    Button(CLIInstallCopy.reveal.text) {
                         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: receipt.managedPath)])
                     }
-                    Button("复制 CLI 路径") { copy(receipt.linkPath) }
+                    Button(CLIInstallCopy.copyPath.text) { copy(receipt.linkPath) }
                 }
             } else {
-                Button("安装 CLI…") {
+                Button(CLIInstallCopy.installPrompt.text) {
                     keepUpdated = true
                     enableIntegration = true
                     showingConfirmation = true
@@ -41,12 +41,10 @@ struct CLIInstallSettingsView: View {
             }
             if case .failed = installer.phase {
                 HStack {
-                    Button("重试") {
-                        if installer.manifest == nil { installer.refresh() }
-                        else if installer.receipt != nil { installer.install(automaticUpdates: installer.automaticUpdates) }
-                        else { showingConfirmation = true }
+                    Button(CLIInstallCopy.retry.text) {
+                        installer.retry()
                     }
-                    Button("复制诊断信息") {
+                    Button(CLIInstallCopy.copyDiagnostics.text) {
                         copy([status,
                               "App/target: \(installer.manifest?.appVersion ?? "unknown") (\(installer.manifest?.appBuild ?? "unknown"))",
                               "Installed: \(installer.receipt?.manifest.cliBuild ?? "none")",
@@ -58,12 +56,12 @@ struct CLIInstallSettingsView: View {
             }
             if let directory = installer.store?.command.deletingLastPathComponent().path,
                !(ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").contains(Substring(directory)) {
-                Text("应用环境的 PATH 中未找到 ~/.local/bin。若终端无法找到命令，可复制以下内容添加到 shell 配置；MacTools 不会修改配置。")
+                Text(CLIInstallCopy.pathHelp.text)
                     .font(PluginSettingsTheme.Typography.rowDescription).foregroundStyle(.secondary)
                 HStack {
                     Text("export PATH=\"$HOME/.local/bin:$PATH\"").textSelection(.enabled)
                         .font(PluginSettingsTheme.Typography.monospacedValue)
-                    Button("复制") { copy("export PATH=\"$HOME/.local/bin:$PATH\"") }
+                    Button(CLIInstallCopy.copy.text) { copy("export PATH=\"$HOME/.local/bin:$PATH\"") }
                 }
             }
         }
@@ -75,37 +73,28 @@ struct CLIInstallSettingsView: View {
         .sheet(isPresented: $showingConfirmation) { confirmation }
     }
 
-    private var status: String {
-        switch installer.phase {
-        case .notInstalled: "CLI 未安装"
-        case .downloading: "正在下载 CLI…"
-        case .verifying: "正在验证 CLI…"
-        case .installing: "正在安装 CLI…"
-        case .installed: "CLI 已安装"
-        case .updateAvailable: "CLI 有可用更新"
-        case let .failed(message): "CLI 操作未完成：\(message)"
-        }
-    }
+    private var status: String { CLIInstallCopy.status(installer.phase, error: installer.lastError) }
 
     private var confirmation: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("安装 Nightly CLI？").font(.title2)
+            Text(CLIInstallCopy.confirmTitle.text).font(.title2)
             if let manifest = installer.manifest, let store = installer.store {
                 Text("\(manifest.cliVersion) (\(manifest.cliBuild)) · \(ByteCountFormatter.string(fromByteCount: Int64(manifest.size), countStyle: .file))")
-                Text("安装目录：\n\(store.root.appendingPathComponent(manifest.directoryName).path)\n\n命令路径：\n\(store.command.path)")
+                Text(CLIInstallCopy.paths.format(
+                    store.root.appendingPathComponent(manifest.directoryName).path, store.command.path))
                     .font(.callout).textSelection(.enabled)
-                Text("MacTools 不会覆盖已有的手动安装、Homebrew 命令或其他 Nightly 渠道的安装。无需管理员密码。")
-                Toggle("启用命令行集成", isOn: $enableIntegration).toggleStyle(.switch)
+                Text(CLIInstallCopy.ownershipHelp.text)
+                Toggle(CLIInstallCopy.enableIntegration.text, isOn: $enableIntegration).toggleStyle(.switch)
                     .disabled(CLIBrokerServiceController.shared.isRegistered)
                 Text(enableIntegration || CLIBrokerServiceController.shared.isRegistered
-                    ? "安装后允许 CLI 连接此应用。macOS 可能要求在“系统设置 → 通用 → 登录项”中另行允许后台运行。"
-                    : "保留 CLI 本机命令；启用命令行集成后才能访问应用操作。")
+                    ? CLIInstallCopy.integrationOn.text
+                    : CLIInstallCopy.integrationOff.text)
                     .font(.callout).foregroundStyle(.secondary)
-                Toggle("随 MacTools 更新 CLI", isOn: $keepUpdated).toggleStyle(.switch)
+                Toggle(CLIInstallCopy.keepUpdated.text, isOn: $keepUpdated).toggleStyle(.switch)
                 HStack {
                     Spacer()
-                    Button("取消") { showingConfirmation = false }.keyboardShortcut(.cancelAction)
-                    Button("安装") {
+                    Button(CLIInstallCopy.cancel.text) { showingConfirmation = false }.keyboardShortcut(.cancelAction)
+                    Button(CLIInstallCopy.install.text) {
                         showingConfirmation = false
                         installer.install(automaticUpdates: keepUpdated, enableIntegration: enableIntegration)
                     }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)

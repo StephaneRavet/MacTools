@@ -104,6 +104,27 @@ final class PluginRuntimeLocalizationTests: XCTestCase {
         }
     }
 
+    func testCLIInstallerCopyAndExistingFailureSwitchLanguagesAtRuntime() {
+        setRuntimePreference("zh-Hans")
+        let error = CLIInstallError.download
+        let phase = CLIInstallPhase.failed(error.localizedDescription)
+        XCTAssertEqual(CLIInstallCopy.confirmTitle.text, "安装 Nightly CLI？")
+        setRuntimePreference("en")
+        XCTAssertEqual(CLIInstallCopy.confirmTitle.text, "Install Nightly CLI?")
+        XCTAssertEqual(CLIInstallCopy.status(phase, error: error),
+            "CLI operation failed: CLI download failed or exceeded the size limit. Check your network and retry.")
+        XCTAssertEqual(CLIInstallCopy.paths.format("/tmp/install", "/tmp/command"),
+            "Installation directory:\n/tmp/install\n\nCommand path:\n/tmp/command")
+        setRuntimePreference("ar")
+        XCTAssertEqual(CLIInstallCopy.confirmTitle.text, "هل تريد تثبيت Nightly CLI؟")
+        XCTAssertEqual(CLIInstallCopy.status(.installed), "CLI مثبّت")
+        setRuntimePreference("zh-Hant")
+        XCTAssertEqual(CLIInstallCopy.confirmTitle.text, "安裝 Nightly CLI？")
+        XCTAssertEqual(CLIInstallCopy.retry.text, "重試")
+        setRuntimePreference("en")
+        XCTAssertEqual(CLIInstallCopy.remove.text, "Remove")
+    }
+
     func testWorkflowStepTimingCopyExplainsSequentialWaits() {
         let expectations: [(language: String, label: String, explanation: String)] = [
             (
