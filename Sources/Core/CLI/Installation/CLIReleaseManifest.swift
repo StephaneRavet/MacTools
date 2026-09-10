@@ -4,7 +4,7 @@ import MacToolsCLIProtocol
 import Security
 
 enum CLIInstallError: String, Error, LocalizedError {
-    case unsupported, metadata, download, archive, signature, identity, version, incompatible
+    case unsupported, metadata, download, archive, signature, notarization, identity, version, incompatible
     case ownership, collision, filesystem, busy, validation
 
     var errorDescription: String? {
@@ -14,6 +14,8 @@ enum CLIInstallError: String, Error, LocalizedError {
         case .download: "CLI 下载失败或超过大小限制，请检查网络后重试。"
         case .archive: "CLI 压缩包校验失败，原有安装未更改。"
         case .signature: "CLI 未通过 macOS 签名或公证检查，请重试或更新 Nightly。"
+        case .notarization: AppL10n.settings("cli.install.error.notarization",
+            defaultValue: "无法确认 CLI 的公证状态，请检查网络后重试，或更新 Nightly。")
         case .identity: "CLI 与此 Nightly 的发布身份不匹配。"
         case .version: "CLI 版本与应用不匹配，请重试。"
         case .incompatible: "CLI 协议不兼容，命令操作已被阻止。请更新 CLI；version 仍可使用。"

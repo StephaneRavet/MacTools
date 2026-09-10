@@ -91,6 +91,19 @@ final class PluginRuntimeLocalizationTests: XCTestCase {
         )
     }
 
+    func testCLINotarizationRecoveryGuidanceFollowsRuntimeLanguage() {
+        let expectations = [
+            ("en", "CLI notarization could not be confirmed. Check your network and retry, or update Nightly."),
+            ("ar", "تعذّر تأكيد توثيق CLI لدى Apple. تحقق من اتصال الشبكة وحاول مجددًا، أو حدّث Nightly."),
+            ("zh-Hans", "无法确认 CLI 的公证状态，请检查网络后重试，或更新 Nightly。"),
+            ("zh-Hant", "無法確認 CLI 的公證狀態，請檢查網路後重試，或更新 Nightly。"),
+        ]
+        for (language, message) in expectations {
+            setRuntimePreference(language)
+            XCTAssertEqual(CLIInstallError.notarization.localizedDescription, message)
+        }
+    }
+
     func testWorkflowStepTimingCopyExplainsSequentialWaits() {
         let expectations: [(language: String, label: String, explanation: String)] = [
             (

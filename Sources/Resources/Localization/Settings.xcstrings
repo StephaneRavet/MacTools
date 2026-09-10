@@ -1,6 +1,19 @@
 {
   "sourceLanguage": "zh-Hans",
   "strings": {
+    "cli.install.error.notarization": { "extractionState": "manual", "localizations": {
+      "ar": { "stringUnit": { "state": "translated", "value": "تعذّر تأكيد توثيق CLI لدى Apple. تحقق من اتصال الشبكة وحاول مجددًا، أو حدّث Nightly." } },
+      "de": { "stringUnit": { "state": "translated", "value": "Die Apple-Notarisierung der CLI konnte nicht bestätigt werden. Prüfe die Netzwerkverbindung und versuche es erneut oder aktualisiere Nightly." } },
+      "en": { "stringUnit": { "state": "translated", "value": "CLI notarization could not be confirmed. Check your network and retry, or update Nightly." } },
+      "es": { "stringUnit": { "state": "translated", "value": "No se pudo confirmar la notarización de la CLI. Comprueba la conexión de red y vuelve a intentarlo, o actualiza Nightly." } },
+      "fr": { "stringUnit": { "state": "translated", "value": "La notarisation de la CLI n’a pas pu être confirmée. Vérifiez votre connexion réseau et réessayez, ou mettez Nightly à jour." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "CLI の公証を確認できませんでした。ネットワーク接続を確認して再試行するか、Nightly をアップデートしてください。" } },
+      "ko": { "stringUnit": { "state": "translated", "value": "CLI 공증을 확인할 수 없습니다. 네트워크 연결을 확인하고 다시 시도하거나 Nightly를 업데이트하세요." } },
+      "pt": { "stringUnit": { "state": "translated", "value": "Não foi possível confirmar a notarização da CLI. Verifique a conexão de rede e tente novamente ou atualize o Nightly." } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Не удалось подтвердить нотариализацию CLI. Проверьте подключение к сети и повторите попытку или обновите Nightly." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法确认 CLI 的公证状态，请检查网络后重试，或更新 Nightly。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法確認 CLI 的公證狀態，請檢查網路後重試，或更新 Nightly。" } }
+    } },
     "tab.permissions": { "extractionState": "manual", "localizations": {
       "ar": { "stringUnit": { "state": "translated", "value": "الأذونات" } },
       "de": { "stringUnit": { "state": "translated", "value": "Berechtigungen" } },

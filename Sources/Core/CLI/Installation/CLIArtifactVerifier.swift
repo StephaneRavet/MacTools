@@ -2,19 +2,73 @@ import Foundation
 import Security
 
 enum CLIArtifactVerifier {
-    static func verifySignature(at url: URL, identifier: String, team: String, notarized: Bool) throws {
+    struct SignatureChecks {
+        var check: (URL, String, String, Bool) -> OSStatus
+        var assess: (URL) throws -> Int32
+
+        static var live: Self {
+            SignatureChecks(check: signatureStatus, assess: { url in
+                try CLIProcess.runResult(URL(fileURLWithPath: "/usr/sbin/spctl"),
+                    ["--assess", "--type", "execute", url.path], timeout: 30).status
+            })
+        }
+    }
+
+    static func verifySignature(at url: URL, identifier: String, team: String, notarized: Bool,
+                                checks: SignatureChecks = .live) throws {
+        try Task.checkCancellation()
+        // Reject invalid signatures and unexpected publishers before requesting an online assessment.
+        guard checks.check(url, identifier, team, false) == errSecSuccess else {
+            throw CLIInstallError.signature
+        }
+        guard notarized else { return }
+        let status = checks.check(url, identifier, team, true)
+        if status == errSecSuccess { return }
+        guard status == errSecCSReqFailed else { throw CLIInstallError.signature }
+
+        try Task.checkCancellation()
+        do {
+            // A static `notarized` requirement can fail until Gatekeeper has fetched the ticket.
+            // spctl may fetch it but reject a standalone executable as "not an app". Its exit
+            // status is diagnostic only: the fresh full signature check below decides acceptance.
+            let assessmentStatus = try checks.assess(url)
+            AppLog.cliInstallation.info("CLI Gatekeeper assessment exited with status \(assessmentStatus)")
+        } catch {
+            try Task.checkCancellation()
+            if error is CancellationError { throw error }
+            AppLog.cliInstallation.error("CLI Gatekeeper assessment could not complete")
+            throw CLIInstallError.notarization
+        }
+        try Task.checkCancellation()
+        guard checks.check(url, identifier, team, true) == errSecSuccess else {
+            throw CLIInstallError.notarization
+        }
+    }
+
+    private static func signatureStatus(at url: URL, identifier: String, team: String, notarized: Bool) -> OSStatus {
         var code: SecStaticCode?
         var requirement: SecRequirement?
         let expression = CLIPeerIdentityValidator().requirementString(signingIdentifier: identifier, teamIdentifier: team)
             + " and certificate 1[field.1.2.840.113635.100.6.2.6] exists"
             + " and certificate leaf[field.1.2.840.113635.100.6.1.13] exists"
             + (notarized ? " and notarized" : "")
-        guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess,
-              let code,
-              SecRequirementCreateWithString(expression as CFString, [], &requirement) == errSecSuccess,
-              SecStaticCodeCheckValidity(code,
-                SecCSFlags(rawValue: kSecCSStrictValidate | kSecCSCheckAllArchitectures),
-                requirement) == errSecSuccess else { throw CLIInstallError.signature }
+        let creation = SecStaticCodeCreateWithPath(url as CFURL, [], &code)
+        guard creation == errSecSuccess, let code else {
+            AppLog.cliInstallation.error("CLI static code creation failed: \(creation)")
+            return creation == errSecSuccess ? errSecParam : creation
+        }
+        let compilation = SecRequirementCreateWithString(expression as CFString, [], &requirement)
+        guard compilation == errSecSuccess, let requirement else {
+            AppLog.cliInstallation.error("CLI signature requirement compilation failed: \(compilation)")
+            return compilation == errSecSuccess ? errSecParam : compilation
+        }
+        // Always create a new SecStaticCode so an earlier failed evaluation is not reused.
+        let status = SecStaticCodeCheckValidity(code,
+            SecCSFlags(rawValue: kSecCSStrictValidate | kSecCSCheckAllArchitectures), requirement)
+        if status != errSecSuccess {
+            AppLog.cliInstallation.error("CLI signature verification failed: \(status), notarization required: \(notarized)")
+        }
+        return status
     }
 
     static func verifyExecutable(_ executable: URL, manifest: CLIReleaseManifest) throws {

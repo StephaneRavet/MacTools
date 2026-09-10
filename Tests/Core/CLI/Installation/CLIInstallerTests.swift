@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import XCTest
 @testable import MacTools
 
@@ -44,7 +45,7 @@ final class CLIInstallerTests: XCTestCase, @unchecked Sendable {
         let first = try await install("123.1", dependencies: fixtureDependencies)
         let store = CLIManagedStore(manifest: manifest("123.1"), home: home)
         let inode = try CLIManagedStore.entry(store.command)?.st_ino
-        for failure in [CLIInstallError.download, .archive, .signature, .identity, .version, .incompatible, .validation] {
+        for failure in [CLIInstallError.download, .archive, .signature, .notarization, .identity, .version, .incompatible, .validation] {
             var dependencies = fixtureDependencies
             switch failure {
             case .download:
@@ -65,6 +66,27 @@ final class CLIInstallerTests: XCTestCase, @unchecked Sendable {
             XCTAssertEqual(try Data(contentsOf: store.command), Data("fixture-executable".utf8))
             XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: store.root.path).contains { $0.hasPrefix(".stage-") })
         }
+    }
+
+    func testFailedNotarizationRecoveryNeverExecutesOrActivatesFirstInstall() async throws {
+        var dependencies = fixtureDependencies
+        dependencies.verify = { url, manifest in
+            try CLIArtifactVerifier.verifySignature(at: url, identifier: manifest.signingIdentifier,
+                team: manifest.teamIdentifier, notarized: true, checks: .init(check: { _, _, _, full in
+                    full ? errSecCSReqFailed : errSecSuccess
+                }, assess: { _ in 0 }))
+        }
+        dependencies.execute = { _, _, _ in XCTFail("Unverified CLI must never execute") }
+        do {
+            _ = try await install("123.1", dependencies: dependencies)
+            XCTFail("Missing notarization must stop installation")
+        } catch { XCTAssertEqual(error as? CLIInstallError, .notarization) }
+        let store = CLIManagedStore(manifest: manifest("123.1"), home: home)
+        XCTAssertNil(try CLIManagedStore.entry(store.command))
+        XCTAssertNil(try store.readState()?.active)
+        XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: store.root.path).contains {
+            $0.hasPrefix(".stage-") || $0 == manifest("123.1").directoryName
+        })
     }
 
     func testProgressReportsVerificationBeforeActivation() async throws {

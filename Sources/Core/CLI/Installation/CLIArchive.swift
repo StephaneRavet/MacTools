@@ -77,6 +77,16 @@ enum CLIProcess {
     /// Runs on the installation worker, with a scrubbed environment and bounded output/deadline.
     static func run(_ executable: URL, _ arguments: [String], limit: Int = 65536,
                     timeout: TimeInterval = 20) throws -> Data {
+        let result = try runResult(executable, arguments, limit: limit, timeout: timeout)
+        guard result.status == 0 else { throw CLIInstallError.validation }
+        return result.data
+    }
+
+    /// Assessment tools may return a nonzero verdict without failing to perform the assessment.
+    /// Keep that verdict separate from launch failures, timeouts, and cancellation.
+    static func runResult(_ executable: URL, _ arguments: [String], limit: Int = 65536,
+                          timeout: TimeInterval = 20) throws -> (data: Data, status: Int32) {
+        try Task.checkCancellation()
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
@@ -105,13 +115,15 @@ enum CLIProcess {
                 kill(process.processIdentifier, SIGKILL)
                 process.waitUntilExit()
                 group.wait()
+                try Task.checkCancellation()
                 throw CLIInstallError.validation
             }
             Thread.sleep(forTimeInterval: 0.02)
         }
         group.wait()
         let (data, overflow) = output.snapshot()
-        guard process.terminationStatus == 0, !overflow else { throw CLIInstallError.validation }
-        return data
+        try Task.checkCancellation()
+        guard !overflow else { throw CLIInstallError.validation }
+        return (data, process.terminationStatus)
     }
 }
