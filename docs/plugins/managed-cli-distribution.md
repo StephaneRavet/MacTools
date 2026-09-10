@@ -24,7 +24,7 @@ First installation requires explicit confirmation and records the automatic-upda
 
 Keep the installed publisher and live release untouched while preparing this migration. In the publisher's build routine, create the release directory, run `prepare_cli`, and invoke the source snapshot's `scripts/cli-install-manifest.py` with the app, archive, source commit, configured team, immutable source release URL, and `release/cli-install.json` output. Then sign and verify the app. Include the JSON in the release checksum manifest. An optional `cli.install_manifest` field can declare it without invalidating existing schema-2 manual-only releases. Validate its version/build, hash, size, architecture, and source against the release before promotion. Never append it to an already published release or re-sign an already notarized app.
 
-When updating the local Nightly skill, replace its manual-only guidance with the capability distinction: legacy builds support manual installation; builds with sealed metadata also support managed installation and opted-in CLI updates after app updates. Keep system approval and signed broker acceptance separate from archive and HTTP checks.
+When updating the local Nightly skill, replace its manual-only guidance with the capability distinction: legacy builds support manual installation; builds with sealed metadata also support managed installation and automatic CLI updates after app updates (with explicit rollback retained until the next app release). Keep system approval and signed broker acceptance separate from archive and HTTP checks.
 
 ## Acceptance evidence
 

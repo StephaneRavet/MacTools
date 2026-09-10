@@ -56,13 +56,41 @@ final class CLIManagedInstallationTests: XCTestCase {
         }
     }
 
-    func testLaunchPolicyRequiresManagedReceiptAndOptIn() throws {
+    func testLaunchPolicyRequiresManagedReceiptAndHonorsReleaseSpecificRollback() throws {
         let (_, receipt) = try prepare(manifest())
-        XCTAssertFalse(CLIInstallLaunchPolicy.shouldUpdate(receipt: nil, target: manifest(build: "124.1"), optedIn: true))
-        XCTAssertFalse(CLIInstallLaunchPolicy.shouldUpdate(receipt: receipt, target: manifest(build: "124.1"), optedIn: false))
-        XCTAssertFalse(CLIInstallLaunchPolicy.shouldUpdate(receipt: receipt, target: manifest(), optedIn: true))
-        XCTAssertTrue(CLIInstallLaunchPolicy.shouldUpdate(receipt: receipt, target: manifest(build: "124.1"), optedIn: true))
-        XCTAssertTrue(CLIInstallLaunchPolicy.shouldUpdate(receipt: receipt, target: manifest(build: "122.1"), optedIn: true))
+        XCTAssertFalse(CLIInstallLaunchPolicy.shouldUpdate(receipt: nil, target: manifest(build: "124.1")))
+        XCTAssertFalse(CLIInstallLaunchPolicy.shouldUpdate(receipt: receipt, target: manifest()))
+        XCTAssertTrue(CLIInstallLaunchPolicy.shouldUpdate(receipt: receipt, target: manifest(build: "124.1")))
+        XCTAssertTrue(CLIInstallLaunchPolicy.shouldUpdate(receipt: receipt, target: manifest(build: "122.1")))
+    }
+
+    func testRollbackMarkerSurvivesFailedAndInterruptedActivation() throws {
+        let (store, first) = try prepare(manifest())
+        let (_, next) = try prepare(manifest(build: "124.1"))
+        let heldRelease = next.manifest.directoryName
+        _ = try store.activate(first.manifest.directoryName, automaticUpdates: true,
+            rollbackForRelease: heldRelease) { _, _ in }
+        XCTAssertThrowsError(try store.activate(next.manifest.directoryName, automaticUpdates: true) { _, _ in
+            throw CLIInstallError.filesystem
+        })
+        XCTAssertEqual(try store.readState()?.rollbackForRelease, heldRelease)
+        XCTAssertEqual(try store.readState()?.active, first.manifest.directoryName)
+        try store.writeState(CLIManagedState(owner: store.owner, active: next.manifest.directoryName,
+            previous: first.manifest.directoryName, automaticUpdates: true, pending: true,
+            rollbackForRelease: heldRelease))
+        let recovered = try store.recover()
+        XCTAssertEqual(recovered?.active, first.manifest.directoryName)
+        XCTAssertEqual(recovered?.rollbackForRelease, heldRelease)
+        XCTAssertFalse(CLIInstallLaunchPolicy.shouldUpdate(receipt: first, target: next.manifest,
+            rollbackForRelease: recovered?.rollbackForRelease))
+        XCTAssertTrue(CLIInstallLaunchPolicy.shouldUpdate(receipt: first, target: manifest(build: "125.1"),
+            rollbackForRelease: recovered?.rollbackForRelease))
+    }
+
+    func testOldStateWithoutRollbackMarkerStillDecodes() throws {
+        let legacy = Data(#"{"owner":"test","active":null,"previous":null,"automaticUpdates":false,"pending":false}"#.utf8)
+        let state = try JSONDecoder().decode(CLIManagedState.self, from: legacy)
+        XCTAssertNil(state.rollbackForRelease)
     }
 
     func testIncompatibleProtocolFailsClosed() {

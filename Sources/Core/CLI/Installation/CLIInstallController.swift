@@ -6,16 +6,16 @@ enum CLIInstallPhase: Equatable, Sendable {
 }
 
 enum CLIInstallLaunchPolicy {
-    static func shouldUpdate(receipt: CLIManagedReceipt?, target: CLIReleaseManifest, optedIn: Bool) -> Bool {
-        guard let receipt, optedIn else { return false }
+    static func shouldUpdate(receipt: CLIManagedReceipt?, target: CLIReleaseManifest, rollbackForRelease: String? = nil) -> Bool {
+        // The managed receipt is the installation opt-in; the legacy update preference no longer gates updates.
+        guard let receipt, rollbackForRelease != target.directoryName else { return false }
         return receipt.manifest != target
     }
 }
 
 enum CLIInstallOperation: Equatable, Sendable {
     case refresh(updateOnLaunch: Bool)
-    case install(automaticUpdates: Bool, enableIntegration: Bool, rollback: Bool)
-    case setAutomaticUpdates(Bool)
+    case install(enableIntegration: Bool, rollback: Bool)
     case remove
 }
 
@@ -25,7 +25,7 @@ final class CLIInstallController: ObservableObject {
     @Published private(set) var manifest: CLIReleaseManifest?
     @Published private(set) var receipt: CLIManagedReceipt?
     @Published private(set) var phase: CLIInstallPhase = .notInstalled
-    @Published private(set) var automaticUpdates = true
+    @Published private(set) var rollbackForRelease: String?
     @Published private(set) var busy = false
     @Published private(set) var canRollback = false
     private(set) var failedOperation: CLIInstallOperation?
@@ -53,9 +53,8 @@ final class CLIInstallController: ObservableObject {
         guard !busy, let operation = failedOperation else { return }
         switch operation {
         case let .refresh(updateOnLaunch): refresh(updateOnLaunch: updateOnLaunch)
-        case let .install(automaticUpdates, enableIntegration, rollback):
-            install(automaticUpdates: automaticUpdates, enableIntegration: enableIntegration, rollback: rollback)
-        case let .setAutomaticUpdates(enabled): setAutomaticUpdates(enabled)
+        case let .install(enableIntegration, rollback):
+            install(enableIntegration: enableIntegration, rollback: rollback)
         case .remove: remove()
         }
     }
@@ -76,7 +75,7 @@ final class CLIInstallController: ObservableObject {
 
     private func apply(_ snapshot: (CLIManagedState?, CLIManagedReceipt?)) {
         receipt = snapshot.1
-        automaticUpdates = snapshot.0?.automaticUpdates ?? true
+        rollbackForRelease = snapshot.0?.rollbackForRelease
         canRollback = snapshot.0?.previous != nil && receipt != nil
     }
 
@@ -99,6 +98,11 @@ final class CLIInstallController: ObservableObject {
         #else
         false
         #endif
+    }
+
+    var isRollbackHeld: Bool {
+        guard let manifest else { return false }
+        return receipt != nil && rollbackForRelease == manifest.directoryName
     }
 
     var store: CLIManagedStore? { manifest.map { CLIManagedStore(manifest: $0, home: home) } }
@@ -127,13 +131,13 @@ final class CLIInstallController: ObservableObject {
                     phase = receipt.manifest == manifest ? .installed : .updateAvailable
                     if !receipt.manifest.isCompatible {
                         lastError = CLIInstallError.incompatible
-                        failedOperation = .install(automaticUpdates: automaticUpdates, enableIntegration: false, rollback: false)
+                        failedOperation = .install(enableIntegration: false, rollback: false)
                         phase = .failed(CLIInstallError.incompatible.localizedDescription)
                     }
                 } else { phase = .notInstalled }
                 busy = false
-                if updateOnLaunch, CLIInstallLaunchPolicy.shouldUpdate(receipt: receipt, target: snapshot.0, optedIn: automaticUpdates) {
-                    install(automaticUpdates: true)
+                if updateOnLaunch, CLIInstallLaunchPolicy.shouldUpdate(receipt: receipt, target: snapshot.0, rollbackForRelease: rollbackForRelease) {
+                    install()
                 }
             } catch {
                 await failed(error, operation: .refresh(updateOnLaunch: updateOnLaunch))
@@ -141,7 +145,7 @@ final class CLIInstallController: ObservableObject {
         }
     }
 
-    func install(automaticUpdates: Bool, enableIntegration: Bool = false, rollback: Bool = false) {
+    func install(enableIntegration: Bool = false, rollback: Bool = false) {
         guard !busy, let manifest else { return }
         begin()
         phase = .downloading
@@ -154,27 +158,18 @@ final class CLIInstallController: ObservableObject {
         Task {
             do {
                 let result = try await Task.detached(priority: .utility) {
-                    try await CLIInstaller.install(manifest: manifest, automaticUpdates: automaticUpdates,
+                    try await CLIInstaller.install(manifest: manifest, automaticUpdates: true,
                                                    doctor: doctor, rollback: rollback, home: home,
                                                    dependencies: dependencies, progress: progress)
                 }.value
                 receipt = result.0
                 canRollback = result.1.previous != nil
-                self.automaticUpdates = result.1.automaticUpdates
+                self.rollbackForRelease = result.1.rollbackForRelease
                 phase = receipt?.manifest == manifest ? .installed : .updateAvailable
             } catch {
-                await failed(error, operation: .install(automaticUpdates: automaticUpdates,
-                    enableIntegration: enableIntegration, rollback: rollback))
+                await failed(error, operation: .install(enableIntegration: enableIntegration, rollback: rollback))
             }
             busy = false
-        }
-    }
-
-    func setAutomaticUpdates(_ enabled: Bool) {
-        mutate(.setAutomaticUpdates(enabled)) { store in
-            guard var state = try store.recover(), state.active != nil else { throw CLIInstallError.ownership }
-            state.automaticUpdates = enabled
-            try store.writeState(state)
         }
     }
 
@@ -282,7 +277,8 @@ enum CLIInstaller {
         guard rollback || candidate.manifest == manifest else { throw CLIInstallError.ownership }
         try dependencies.verify(URL(fileURLWithPath: candidate.managedPath), candidate.manifest)
         await progress(.installing)
-        let active = try store.activate(name, automaticUpdates: automaticUpdates) { executable, release in
+        let active = try store.activate(name, automaticUpdates: automaticUpdates,
+                                        rollbackForRelease: rollback && candidate.manifest != manifest ? manifest.directoryName : nil) { executable, release in
             try dependencies.execute(executable, release, false)
             if doctor { try dependencies.execute(executable, manifest, true) }
         }

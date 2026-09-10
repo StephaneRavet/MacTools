@@ -13,9 +13,11 @@ struct CLIManagedState: Codable, Sendable {
     let owner: String
     var active: String?
     var previous: String?
+    // Retained for decoding state written by earlier Nightly builds.
     var automaticUpdates: Bool
     var pending: Bool
     var recoveryPrevious: String? = nil
+    var rollbackForRelease: String? = nil
 }
 
 /// All writes are per-user and serialized by a no-follow flock. The command symlink is created
@@ -212,7 +214,7 @@ struct CLIManagedStore: Sendable {
         return state
     }
 
-    func activate(_ name: String, automaticUpdates: Bool,
+    func activate(_ name: String, automaticUpdates: Bool, rollbackForRelease: String? = nil,
                   validate: (URL, CLIReleaseManifest) throws -> Void) throws -> CLIManagedState {
         let old = try recover()
         _ = try receipt(name)
@@ -223,12 +225,15 @@ struct CLIManagedStore: Sendable {
             let installed = try receipt(name)
             try validate(URL(fileURLWithPath: installed.managedPath), installed.manifest)
             state.automaticUpdates = automaticUpdates
+            state.rollbackForRelease = rollbackForRelease
             try writeState(state)
             return state
         }
+        // Keep the old rollback hold in the journal until the new activation succeeds.
         var state = CLIManagedState(owner: owner, active: name, previous: old?.active,
                                     automaticUpdates: automaticUpdates, pending: true,
-                                    recoveryPrevious: old?.previous)
+                                    recoveryPrevious: old?.previous,
+                                    rollbackForRelease: old?.rollbackForRelease)
         try writeState(state)
         do {
             try switchCurrent(from: old?.active, to: name)
@@ -240,6 +245,7 @@ struct CLIManagedStore: Sendable {
             try validate(command, installed.manifest)
             state.pending = false
             state.recoveryPrevious = nil
+            state.rollbackForRelease = rollbackForRelease
             try writeState(state)
             return state
         } catch {
@@ -258,7 +264,8 @@ struct CLIManagedStore: Sendable {
         for name in names { _ = try receipt(name) }
         try writeState(CLIManagedState(owner: owner, active: nil, previous: state.active,
                                       automaticUpdates: state.automaticUpdates, pending: true,
-                                      recoveryPrevious: state.previous))
+                                      recoveryPrevious: state.previous,
+                                      rollbackForRelease: state.rollbackForRelease))
         if state.active != nil {
             guard unlink(command.path) == 0 else { throw CLIInstallError.filesystem }
             try Self.synchronizeDirectory(command.deletingLastPathComponent())

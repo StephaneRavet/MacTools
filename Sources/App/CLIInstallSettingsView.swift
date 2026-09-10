@@ -3,74 +3,175 @@ import MacToolsPluginKit
 import SwiftUI
 
 struct CLIInstallSettingsView: View {
-    @ObservedObject private var installer = CLIInstallController.shared
+    @ObservedObject private var installer: CLIInstallController
     @State private var showingConfirmation = false
-    @State private var keepUpdated = true
     @State private var enableIntegration = true
 
+    @ObservedObject private var service: CLIBrokerServiceController
+
+    init(installer: CLIInstallController = .shared, service: CLIBrokerServiceController = .shared) {
+        self.installer = installer
+        self.service = service
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(status).font(PluginSettingsTheme.Typography.rowDescription)
-                .textSelection(.enabled)
-            if let receipt = installer.receipt {
-                Text("\(receipt.manifest.cliVersion) (\(receipt.manifest.cliBuild))\n\(receipt.linkPath)")
-                    .font(PluginSettingsTheme.Typography.rowDescription)
-                    .foregroundStyle(.secondary).textSelection(.enabled)
-                Toggle(CLIInstallCopy.keepUpdated.text, isOn: Binding(
-                    get: { installer.automaticUpdates }, set: { installer.setAutomaticUpdates($0) }
-                )).toggleStyle(.switch)
-                HStack {
-                    Button(CLIInstallCopy.update.text) { installer.install(automaticUpdates: installer.automaticUpdates) }
-                    if installer.canRollback {
-                        Button(CLIInstallCopy.rollback.text) {
-                            installer.install(automaticUpdates: installer.automaticUpdates, rollback: true)
-                        }
-                    }
-                    Button(CLIInstallCopy.remove.text) { installer.remove() }
-                    Button(CLIInstallCopy.reveal.text) {
-                        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: receipt.managedPath)])
-                    }
-                    Button(CLIInstallCopy.copyPath.text) { copy(receipt.linkPath) }
-                }
-            } else {
+        VStack(alignment: .leading, spacing: PluginSettingsTheme.Spacing.rowContentControl) {
+            header
+            if installer.receipt != nil || service.isRegistered {
+                integrationToggle
+            }
+            attention
+            DisclosureGroup(CLIInstallCopy.details.text) {
+                details
+                    .padding(.top, PluginSettingsTheme.Spacing.rowTitleDescription)
+            }
+        }
+        .font(PluginSettingsTheme.Typography.rowDescription)
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .padding(.horizontal, PluginSettingsTheme.Spacing.rowHorizontal)
+        .padding(.vertical, PluginSettingsTheme.Spacing.rowVertical)
+        .onAppear {
+            installer.start()
+            service.refresh()
+        }
+        .sheet(isPresented: $showingConfirmation) { confirmation }
+    }
+
+    private var header: some View {
+        HStack(spacing: PluginSettingsTheme.Spacing.rowContentControl) {
+            VStack(alignment: .leading, spacing: PluginSettingsTheme.Spacing.rowTitleDescription) {
+                Label(AppL10n.settings("commandLine.title", defaultValue: "MacTools 命令行"), systemImage: "terminal")
+                    .font(PluginSettingsTheme.Typography.emphasizedRowTitle)
+                Text(summary)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if installer.busy {
+                ProgressView().controlSize(.small)
+                    .accessibilityLabel(status)
+            } else if installer.receipt == nil {
                 Button(CLIInstallCopy.installPrompt.text) {
-                    keepUpdated = true
                     enableIntegration = true
                     showingConfirmation = true
-                }.disabled(installer.manifest == nil)
+                }
+                .disabled(installer.manifest == nil)
+            } else if installer.phase == .updateAvailable {
+                Button(CLIInstallCopy.update.text) {
+                    installer.install()
+                }
             }
-            if case .failed = installer.phase {
-                HStack {
-                    Button(CLIInstallCopy.retry.text) {
-                        installer.retry()
+            if installer.receipt != nil {
+                Menu(CLIInstallCopy.manage.text) {
+                    if installer.canRollback {
+                        Button(CLIInstallCopy.rollback.text) {
+                            installer.install(rollback: true)
+                        }
                     }
+                    Button(CLIInstallCopy.remove.text, role: .destructive) { installer.remove() }
+                }
+                .fixedSize()
+                .disabled(installer.busy)
+            }
+        }
+    }
+
+    private var summary: String {
+        if installer.busy { return status }
+        if case .failed = installer.phase {
+            return installer.receipt.map { "\(CLIInstallCopy.installed.text) · v\($0.manifest.cliVersion)" }
+                ?? CLIInstallCopy.notInstalled.text
+        }
+        return installer.receipt.map { "\(status) · v\($0.manifest.cliVersion)" } ?? status
+    }
+
+    private var integrationToggle: some View {
+        Toggle(isOn: Binding(
+            get: { service.isRegistered },
+            set: { enabled in
+                if enabled { _ = service.ensureRegistered() }
+                else { _ = service.unregister() }
+            }
+        )) {
+            Text(CLIInstallCopy.allowConnection.text)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .toggleStyle(.switch)
+        .disabled(installer.busy)
+    }
+
+    @ViewBuilder
+    private var attention: some View {
+        if service.status == .requiresApproval {
+            VStack(alignment: .leading, spacing: PluginSettingsTheme.Spacing.rowTitleDescription) {
+                Text(AppL10n.settings("commandLine.requiresApproval",
+                    defaultValue: "请在系统设置中允许 MacTools 命令行代理后台运行。"))
+                    .foregroundStyle(.secondary)
+                Button(AppL10n.settings("commandLine.approve", defaultValue: "允许后台运行")) {
+                    service.openApprovalSettings()
+                }
+            }
+        }
+        if let error = service.lastError {
+            Text(error).foregroundStyle(.orange).textSelection(.enabled)
+        }
+        if case .failed = installer.phase {
+            VStack(alignment: .leading, spacing: PluginSettingsTheme.Spacing.rowTitleDescription) {
+                Text(status).foregroundStyle(.orange).textSelection(.enabled)
+                HStack {
+                    Button(CLIInstallCopy.retry.text) { installer.retry() }
+                        .disabled(installer.busy)
                     Button(CLIInstallCopy.copyDiagnostics.text) {
                         copy([status,
                               "App/target: \(installer.manifest?.appVersion ?? "unknown") (\(installer.manifest?.appBuild ?? "unknown"))",
                               "Installed: \(installer.receipt?.manifest.cliBuild ?? "none")",
-                              "Managed updates: \(installer.automaticUpdates)",
+                              "Rollback held for: \(installer.rollbackForRelease ?? "none")",
                               "Command: \(installer.store?.command.path ?? "unavailable")",
-                              "Broker: \(CLIBrokerServiceController.shared.status.rawValue)"].joined(separator: "\n"))
+                              "Broker: \(service.status.rawValue)"].joined(separator: "\n"))
                     }
                 }
             }
-            if let directory = installer.store?.command.deletingLastPathComponent().path,
-               !(ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").contains(Substring(directory)) {
-                Text(CLIInstallCopy.pathHelp.text)
-                    .font(PluginSettingsTheme.Typography.rowDescription).foregroundStyle(.secondary)
+        }
+    }
+
+    private var details: some View {
+        VStack(alignment: .leading, spacing: PluginSettingsTheme.Spacing.rowContentControl) {
+            if let receipt = installer.receipt {
+                Text(installer.isRollbackHeld ? CLIInstallCopy.rollbackHelp.text : CLIInstallCopy.automaticUpdates.text)
+                    .foregroundStyle(.secondary)
+                Text(CLIInstallCopy.build.format(receipt.manifest.cliBuild))
+                    .foregroundStyle(.secondary)
+                Text(CLIInstallCopy.paths.format(
+                    URL(fileURLWithPath: receipt.managedPath).deletingLastPathComponent().path,
+                    receipt.linkPath))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
                 HStack {
-                    Text("export PATH=\"$HOME/.local/bin:$PATH\"").textSelection(.enabled)
+                    Button(CLIInstallCopy.copyPath.text) { copy(receipt.linkPath) }
+                    Button(CLIInstallCopy.reveal.text) {
+                        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: receipt.managedPath)])
+                    }
+                }
+            } else if !service.isRegistered {
+                // Manually installed CLIs can connect without a managed receipt.
+                integrationToggle
+            }
+            DisclosureGroup(CLIInstallCopy.terminalSetup.text) {
+                VStack(alignment: .leading, spacing: PluginSettingsTheme.Spacing.rowTitleDescription) {
+                    Text(CLIInstallCopy.pathHelp.text)
+                        .foregroundStyle(.secondary)
+                    Text("export PATH=\"$HOME/.local/bin:$PATH\"")
+                        .textSelection(.enabled)
                         .font(PluginSettingsTheme.Typography.monospacedValue)
+                        .fixedSize(horizontal: false, vertical: true)
                     Button(CLIInstallCopy.copy.text) { copy("export PATH=\"$HOME/.local/bin:$PATH\"") }
                 }
+                .padding(.top, PluginSettingsTheme.Spacing.rowTitleDescription)
             }
         }
-        .buttonStyle(.bordered).controlSize(.small)
-        .disabled(installer.busy)
-        .padding(.horizontal, PluginSettingsTheme.Spacing.rowHorizontal)
-        .padding(.vertical, PluginSettingsTheme.Spacing.rowVertical)
-        .onAppear { installer.start() }
-        .sheet(isPresented: $showingConfirmation) { confirmation }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var status: String { CLIInstallCopy.status(installer.phase, error: installer.lastError) }
@@ -85,18 +186,19 @@ struct CLIInstallSettingsView: View {
                     .font(.callout).textSelection(.enabled)
                 Text(CLIInstallCopy.ownershipHelp.text)
                 Toggle(CLIInstallCopy.enableIntegration.text, isOn: $enableIntegration).toggleStyle(.switch)
-                    .disabled(CLIBrokerServiceController.shared.isRegistered)
-                Text(enableIntegration || CLIBrokerServiceController.shared.isRegistered
+                    .disabled(service.isRegistered)
+                Text(enableIntegration || service.isRegistered
                     ? CLIInstallCopy.integrationOn.text
                     : CLIInstallCopy.integrationOff.text)
                     .font(.callout).foregroundStyle(.secondary)
-                Toggle(CLIInstallCopy.keepUpdated.text, isOn: $keepUpdated).toggleStyle(.switch)
+                Text(CLIInstallCopy.automaticUpdates.text)
+                    .font(.callout).foregroundStyle(.secondary)
                 HStack {
                     Spacer()
                     Button(CLIInstallCopy.cancel.text) { showingConfirmation = false }.keyboardShortcut(.cancelAction)
                     Button(CLIInstallCopy.install.text) {
                         showingConfirmation = false
-                        installer.install(automaticUpdates: keepUpdated, enableIntegration: enableIntegration)
+                        installer.install(enableIntegration: enableIntegration)
                     }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
                 }
             }

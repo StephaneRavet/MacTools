@@ -46,7 +46,7 @@ final class CLIInstallControllerTests: XCTestCase {
             dependencies: dependencies(Failure()), prepareIntegration: { _ in false })
         controller.refresh()
         try await idle(controller)
-        controller.install(automaticUpdates: true)
+        controller.install()
         try await idle(controller)
         let store = try XCTUnwrap(controller.store)
         let directory = store.root.appendingPathComponent(target.directoryName)
@@ -80,18 +80,19 @@ final class CLIInstallControllerTests: XCTestCase {
             dependencies: dependencies, prepareIntegration: { _ in false })
         controller.refresh()
         try await idle(controller)
-        controller.install(automaticUpdates: false)
+        controller.install()
         try await idle(controller)
         failure.set(.notarization)
-        controller.install(automaticUpdates: false, rollback: true)
+        controller.install(rollback: true)
         try await idle(controller)
         XCTAssertEqual(controller.receipt?.manifest, target)
-        XCTAssertEqual(controller.failedOperation, .install(automaticUpdates: false, enableIntegration: false, rollback: true))
+        XCTAssertEqual(controller.failedOperation, .install(enableIntegration: false, rollback: true))
         failure.set(nil)
         controller.retry()
         try await idle(controller)
         XCTAssertEqual(controller.receipt?.manifest, old)
-        XCTAssertFalse(controller.automaticUpdates)
+        XCTAssertTrue(controller.isRollbackHeld)
+        XCTAssertTrue(try XCTUnwrap(controller.store?.readState()).automaticUpdates)
         XCTAssertNil(controller.failedOperation)
     }
 
@@ -106,40 +107,111 @@ final class CLIInstallControllerTests: XCTestCase {
         controller.refresh()
         try await idle(controller)
         failure.set(.signature)
-        controller.install(automaticUpdates: false, enableIntegration: false)
+        controller.install(enableIntegration: false)
         try await idle(controller)
         XCTAssertNil(controller.receipt)
         failure.set(nil)
         controller.retry()
         try await idle(controller)
         XCTAssertEqual(controller.receipt?.manifest, target)
-        XCTAssertFalse(controller.automaticUpdates)
+        XCTAssertTrue(try XCTUnwrap(controller.store?.readState()).automaticUpdates)
         XCTAssertEqual(integrationRequests, [false, false])
     }
 
-    func testRetryPreferenceChangeDoesNotInstallAvailableUpdate() async throws {
+    func testLegacyOptOutUpdatesOnLaunchAndRemovalDoesNotReinstall() async throws {
         let home = try home()
         defer { try? FileManager.default.removeItem(at: home) }
         let old = manifest("123.1")
         let dependencies = dependencies(Failure())
+        _ = try await CLIInstaller.install(manifest: old, automaticUpdates: false, doctor: false,
+            rollback: false, home: home, dependencies: dependencies, progress: { _ in })
+        let target = manifest("124.1")
+        let controller = CLIInstallController(home: home, authenticate: { target },
+            dependencies: dependencies, prepareIntegration: { enabled in
+                XCTAssertFalse(enabled, "Automatic updates must not enable integration")
+                return false
+            })
+        controller.refresh(updateOnLaunch: true)
+        try await idle(controller)
+        XCTAssertEqual(controller.receipt?.manifest, target)
+        XCTAssertTrue(try XCTUnwrap(controller.store?.readState()).automaticUpdates)
+        controller.remove()
+        try await idle(controller)
+        controller.refresh(updateOnLaunch: true)
+        try await idle(controller)
+        XCTAssertNil(controller.receipt)
+        XCTAssertEqual(controller.phase, .notInstalled)
+    }
+
+    func testRollbackSurvivesRelaunchAndEndsWithNextAppRelease() async throws {
+        let home = try home()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let dependencies = dependencies(Failure())
+        let old = manifest("123.1")
         _ = try await CLIInstaller.install(manifest: old, automaticUpdates: true, doctor: false,
             rollback: false, home: home, dependencies: dependencies, progress: { _ in })
         let target = manifest("124.1")
         let controller = CLIInstallController(home: home, authenticate: { target },
             dependencies: dependencies, prepareIntegration: { _ in false })
-        controller.refresh()
+        controller.refresh(updateOnLaunch: true)
         try await idle(controller)
-        let store = try XCTUnwrap(controller.store)
-        let lock = try store.lock(create: false)
-        controller.setAutomaticUpdates(false)
-        try await idle(controller)
-        XCTAssertEqual(controller.failedOperation, .setAutomaticUpdates(false))
-        close(lock)
-        controller.retry()
+        controller.install(rollback: true)
         try await idle(controller)
         XCTAssertEqual(controller.receipt?.manifest, old)
-        XCTAssertFalse(controller.automaticUpdates)
-        XCTAssertNil(controller.failedOperation)
+        XCTAssertTrue(controller.isRollbackHeld)
+        let relaunched = CLIInstallController(home: home, authenticate: { target },
+            dependencies: dependencies, prepareIntegration: { _ in XCTFail("Rollback must survive restart"); return false })
+        relaunched.refresh(updateOnLaunch: true)
+        try await idle(relaunched)
+        XCTAssertEqual(relaunched.receipt?.manifest, old)
+        XCTAssertTrue(relaunched.isRollbackHeld)
+        let next = manifest("125.1")
+        let upgraded = CLIInstallController(home: home, authenticate: { next },
+            dependencies: dependencies, prepareIntegration: { _ in false })
+        upgraded.refresh(updateOnLaunch: true)
+        try await idle(upgraded)
+        XCTAssertEqual(upgraded.receipt?.manifest, next)
+        XCTAssertNil(upgraded.rollbackForRelease)
+    }
+
+    func testExplicitUpdateClearsRollbackHold() async throws {
+        let home = try home()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let dependencies = dependencies(Failure())
+        _ = try await CLIInstaller.install(manifest: manifest("123.1"), automaticUpdates: true, doctor: false,
+            rollback: false, home: home, dependencies: dependencies, progress: { _ in })
+        let target = manifest("124.1")
+        let controller = CLIInstallController(home: home, authenticate: { target },
+            dependencies: dependencies, prepareIntegration: { _ in false })
+        controller.refresh(updateOnLaunch: true)
+        try await idle(controller)
+        controller.install(rollback: true)
+        try await idle(controller)
+        XCTAssertTrue(controller.isRollbackHeld)
+        controller.install()
+        try await idle(controller)
+        XCTAssertEqual(controller.receipt?.manifest, target)
+        XCTAssertNil(controller.rollbackForRelease)
+    }
+
+    func testRollbackBackToMatchingReleaseClearsHold() async throws {
+        let home = try home()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let dependencies = dependencies(Failure())
+        _ = try await CLIInstaller.install(manifest: manifest("123.1"), automaticUpdates: true, doctor: false,
+            rollback: false, home: home, dependencies: dependencies, progress: { _ in })
+        let target = manifest("124.1")
+        let controller = CLIInstallController(home: home, authenticate: { target },
+            dependencies: dependencies, prepareIntegration: { _ in false })
+        controller.refresh(updateOnLaunch: true)
+        try await idle(controller)
+        controller.install(rollback: true)
+        try await idle(controller)
+        XCTAssertTrue(controller.isRollbackHeld)
+        controller.install(rollback: true)
+        try await idle(controller)
+        XCTAssertEqual(controller.receipt?.manifest, target)
+        XCTAssertFalse(controller.isRollbackHeld)
     }
 
     func testRetryMetadataFailureRefreshesWithoutInstalling() async throws {

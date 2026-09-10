@@ -2,7 +2,13 @@ import Foundation
 import MacToolsPluginKit
 
 enum CLIInstallCopy: String, CaseIterable {
-    case keepUpdated
+    case details
+    case manage
+    case terminalSetup
+    case allowConnection
+    case build
+    case automaticUpdates
+    case rollbackHelp
     case update
     case rollback
     case remove
@@ -33,7 +39,13 @@ enum CLIInstallCopy: String, CaseIterable {
 
     private var source: String {
         switch self {
-        case .keepUpdated: "随 MacTools 更新 CLI"
+        case .details: "详细信息"
+        case .manage: "管理"
+        case .terminalSetup: "终端设置"
+        case .allowConnection: "允许 CLI 连接 MacTools"
+        case .build: "构建版本 %@"
+        case .automaticUpdates: "CLI 会随 MacTools 自动更新。"
+        case .rollbackHelp: "已保留回退版本；下次 MacTools 更新时将自动更新 CLI。"
         case .update: "更新"
         case .rollback: "回退上一版本"
         case .remove: "移除"
