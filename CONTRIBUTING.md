@@ -107,3 +107,7 @@ Nightly isolation also covers Activity Bar sockets/hook registrations and CLI/br
 - GitHub Actions build and release configuration is documented in `docs/github-actions.md`; plugin catalog, package structure, and batch release flows are documented in `docs/plugins/plugin-catalog.md`.
 
 For the PluginKit v6 migration, source manifests declare `pluginKitVersion: 6` and `minHostVersion: "1.3.0"`. Leave plugin package versions, `Configs/AppVersion.xcconfig`, signed catalogs, and compiled release notes to `make release`; do not pre-bump them in the ABI migration change. Run `make release` for plugins first (auto selects all plugins), wait for the v6 catalog commit and Pages deployment, then run the app release. CI and `make ci` check the frozen v6 client, including settings row, option, and control layouts.
+
+### Managed Nightly CLI distribution
+
+Nightly release interface v4 packages the signed arm64 CLI once, generates `cli-install.json` with `scripts/cli-install-manifest.py`, embeds it in the app resources, and then signs the outer app. Publish that same ZIP and JSON only after both notarization submissions pass. The app trusts the resource seal, never a downloaded unsigned manifest. Personal publishers must use the same ordering with an immutable `/releases/<build>` URL. See [managed CLI distribution](docs/plugins/managed-cli-distribution.md) for the contract, ownership layout, and release acceptance gates.
