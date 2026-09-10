@@ -25,6 +25,7 @@ struct CLIInstallSettingsView: View {
                 details
                     .padding(.top, PluginSettingsTheme.Spacing.rowTitleDescription)
             }
+            .disclosureGroupStyle(CLISettingsDisclosureStyle())
         }
         .font(PluginSettingsTheme.Typography.rowDescription)
         .buttonStyle(.bordered)
@@ -170,6 +171,7 @@ struct CLIInstallSettingsView: View {
                 }
                 .padding(.top, PluginSettingsTheme.Spacing.rowTitleDescription)
             }
+            .disclosureGroupStyle(CLISettingsDisclosureStyle())
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -208,5 +210,34 @@ struct CLIInstallSettingsView: View {
     private func copy(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
+/// Only the header toggles expansion; controls and selectable text in the content stay independent.
+struct CLISettingsDisclosureStyle: DisclosureGroupStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(alignment: .leading, spacing: PluginSettingsTheme.Spacing.rowTitleDescription) {
+            Button {
+                configuration.isExpanded.toggle()
+            } label: {
+                HStack(spacing: PluginSettingsTheme.Spacing.rowTitleDescription) {
+                    Image(systemName: configuration.isExpanded ? "chevron.down" : "chevron.forward")
+                        .imageScale(.small)
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                    configuration.label
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(Text(configuration.isExpanded
+                ? AppL10n.settings("plugins.configuration.disclosure.expanded", defaultValue: "已展开")
+                : AppL10n.settings("plugins.configuration.disclosure.collapsed", defaultValue: "已折叠")))
+            if configuration.isExpanded {
+                configuration.content
+            }
+        }
     }
 }
